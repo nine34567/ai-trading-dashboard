@@ -1,4 +1,4 @@
-const API_BASE_URL = "http://localhost:8000"
+const API_BASE_URL = "http://localhost:5173"
 const MOCK_STORAGE_KEY = "ai-trading-dashboard-mock-state"
 
 const isBrowser = typeof window !== "undefined"
