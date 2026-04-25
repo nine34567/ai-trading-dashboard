@@ -1,4 +1,4 @@
-const API_BASE_URL = "http://localhost:5173"
+const API_BASE_URL = "http://localhost:8000"
 const MOCK_STORAGE_KEY = "ai-trading-dashboard-mock-state"
 
 const isBrowser = typeof window !== "undefined"
@@ -220,7 +220,7 @@ function validateMockRiskSettings(payload) {
 
   return {
     maxDailyLoss: formatMoney(maxDailyLossAmount),
-    riskPerTrade: `${riskPerTradePercent:g}%`.replace(":g", ""),
+    riskPerTrade: `${riskPerTradePercent}%`,
     maxOpenPositions: String(maxOpenPositions)
   }
 }
