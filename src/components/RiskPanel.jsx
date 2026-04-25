@@ -19,8 +19,18 @@ function RiskPanel({ riskData }) {
         return Number.isNaN(parsedValue) ? 0 : parsedValue
     }
 
+    const parsePercent = (value) => {
+        if (typeof value === "number") return value
+
+        const cleanedValue = String(value || "0").replace("%", "")
+        const parsedValue = Number(cleanedValue)
+
+        return Number.isNaN(parsedValue) ? 0 : parsedValue
+    }
+
     const maxDailyLossAmount = parseMoney(safeRiskData.maxDailyLoss)
     const currentDailyLossAmount = parseMoney(safeRiskData.currentDailyLoss)
+    const riskPerTradePercent = parsePercent(safeRiskData.riskPerTrade)
 
     const maxOpenPositions = Number(safeRiskData.maxOpenPositions) || 0
     const currentOpenPositions = Number(safeRiskData.currentOpenPositions) || 0
@@ -40,8 +50,34 @@ function RiskPanel({ riskData }) {
             ? Math.max(100 - dailyLossUsagePercent, 0)
             : 0
 
-    const positionBufferPercent =
-        Math.max(100 - positionUsagePercent, 0)
+    const positionBufferPercent = Math.max(100 - positionUsagePercent, 0)
+
+    const riskPreset =
+        maxDailyLossAmount === 5 && riskPerTradePercent === 0.5 && maxOpenPositions === 2
+            ? "Conservative"
+            : maxDailyLossAmount === 10 && riskPerTradePercent === 1 && maxOpenPositions === 3
+                ? "Balanced"
+                : maxDailyLossAmount === 20 && riskPerTradePercent === 2 && maxOpenPositions === 5
+                    ? "Aggressive"
+                    : "Custom"
+
+    const riskPresetDescription =
+        riskPreset === "Conservative"
+            ? "Safer risk profile. Lower daily loss, lower risk per trade, and fewer open positions."
+            : riskPreset === "Balanced"
+                ? "Balanced risk profile. Standard daily loss, standard risk per trade, and moderate position limit."
+                : riskPreset === "Aggressive"
+                    ? "Higher risk profile. Larger daily loss allowance, higher risk per trade, and more open positions."
+                    : "Custom risk profile. Current values do not match a preset exactly."
+
+    const riskPresetColor =
+        riskPreset === "Conservative"
+            ? "#86efac"
+            : riskPreset === "Balanced"
+                ? "#facc15"
+                : riskPreset === "Aggressive"
+                    ? "#fb923c"
+                    : "#d1d5db"
 
     const riskLevel =
         safeRiskData.riskStatus === "PAUSED"
@@ -99,10 +135,7 @@ function RiskPanel({ riskData }) {
         riskScorePenaltyFromDailyLoss +
         riskScorePenaltyFromPositions
 
-    const riskScore = Math.max(
-        0,
-        Math.round(100 - totalRiskPenalty)
-    )
+    const riskScore = Math.max(0, Math.round(100 - totalRiskPenalty))
 
     const safetyRating =
         riskScore >= 80
@@ -277,12 +310,18 @@ function RiskPanel({ riskData }) {
         return (
             <div style={cardStyle}>
                 <p style={labelStyle}>{label}</p>
-                <p style={{ color: penaltyColor, fontWeight: "bold", marginBottom: "8px" }}>
+
+                <p
+                    style={{
+                        color: penaltyColor,
+                        fontWeight: "bold",
+                        marginBottom: "8px"
+                    }}
+                >
                     -{value.toFixed(1)}
                 </p>
-                <p style={{ color: "#9ca3af", fontSize: "13px" }}>
-                    {detail}
-                </p>
+
+                <p style={{ color: "#9ca3af", fontSize: "13px" }}>{detail}</p>
             </div>
         )
     }
@@ -297,6 +336,43 @@ function RiskPanel({ riskData }) {
             }}
         >
             <h3 style={{ marginBottom: "20px" }}>Risk Management Snapshot</h3>
+
+            <div
+                style={{
+                    backgroundColor: "#0b1220",
+                    border: `1px solid ${riskPresetColor}`,
+                    borderRadius: "14px",
+                    padding: "16px",
+                    marginBottom: "16px"
+                }}
+            >
+                <div
+                    style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "16px",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                        marginBottom: "8px"
+                    }}
+                >
+                    <p style={{ color: "#9ca3af" }}>Risk Preset Badge</p>
+
+                    <p
+                        style={{
+                            color: riskPresetColor,
+                            fontWeight: "bold",
+                            fontSize: "18px"
+                        }}
+                    >
+                        {riskPreset}
+                    </p>
+                </div>
+
+                <p style={{ color: "#d1d5db", fontWeight: "bold" }}>
+                    {riskPresetDescription}
+                </p>
+            </div>
 
             <div
                 style={{
@@ -424,6 +500,7 @@ function RiskPanel({ riskData }) {
                     }}
                 >
                     <p style={{ color: "#9ca3af" }}>Current Safety Score</p>
+
                     <p style={{ color: safetyRatingColor, fontWeight: "bold" }}>
                         {riskScore}/100 — {safetyRating}
                     </p>
@@ -514,9 +591,17 @@ function RiskPanel({ riskData }) {
 
                     <div style={cardStyle}>
                         <p style={labelStyle}>Final Score</p>
-                        <p style={{ color: safetyRatingColor, fontWeight: "bold", marginBottom: "8px" }}>
+
+                        <p
+                            style={{
+                                color: safetyRatingColor,
+                                fontWeight: "bold",
+                                marginBottom: "8px"
+                            }}
+                        >
                             {riskScore}/100
                         </p>
+
                         <p style={{ color: "#9ca3af", fontSize: "13px" }}>
                             Final safety score after all deductions.
                         </p>
@@ -544,6 +629,7 @@ function RiskPanel({ riskData }) {
                 >
                     <div style={cardStyle}>
                         <p style={labelStyle}>Risk Score</p>
+
                         <p style={{ color: safetyRatingColor, fontWeight: "bold" }}>
                             {riskScore}/100
                         </p>
@@ -551,6 +637,7 @@ function RiskPanel({ riskData }) {
 
                     <div style={cardStyle}>
                         <p style={labelStyle}>Safety Rating</p>
+
                         <p style={{ color: safetyRatingColor, fontWeight: "bold" }}>
                             {safetyRating}
                         </p>
@@ -558,6 +645,7 @@ function RiskPanel({ riskData }) {
 
                     <div style={cardStyle}>
                         <p style={labelStyle}>Daily Loss Remaining</p>
+
                         <p style={{ color: dailyLossUsageColor, fontWeight: "bold" }}>
                             ${dailyLossRemaining.toFixed(2)}
                         </p>
@@ -565,6 +653,7 @@ function RiskPanel({ riskData }) {
 
                     <div style={cardStyle}>
                         <p style={labelStyle}>Loss Buffer</p>
+
                         <p style={{ color: dailyLossUsageColor, fontWeight: "bold" }}>
                             {dailyLossBufferPercent.toFixed(0)}%
                         </p>
@@ -572,6 +661,7 @@ function RiskPanel({ riskData }) {
 
                     <div style={cardStyle}>
                         <p style={labelStyle}>Position Buffer</p>
+
                         <p style={{ color: usageColor, fontWeight: "bold" }}>
                             {positionBufferPercent.toFixed(0)}%
                         </p>
@@ -599,6 +689,7 @@ function RiskPanel({ riskData }) {
                 >
                     <div style={cardStyle}>
                         <p style={labelStyle}>Primary Blocker</p>
+
                         <p style={{ color: priorityColor, fontWeight: "bold" }}>
                             {primaryBlocker}
                         </p>
@@ -606,6 +697,7 @@ function RiskPanel({ riskData }) {
 
                     <div style={cardStyle}>
                         <p style={labelStyle}>Risk Priority</p>
+
                         <p style={{ color: priorityColor, fontWeight: "bold" }}>
                             {riskPriority}
                         </p>
@@ -613,6 +705,7 @@ function RiskPanel({ riskData }) {
 
                     <div style={cardStyle}>
                         <p style={labelStyle}>What to Check Next</p>
+
                         <p style={{ color: "#d1d5db", fontWeight: "bold" }}>
                             {whatToCheckNext}
                         </p>
@@ -699,6 +792,7 @@ function RiskPanel({ riskData }) {
                     }}
                 >
                     <p style={{ color: "#9ca3af" }}>Position Usage Bar</p>
+
                     <p style={{ color: usageColor, fontWeight: "bold" }}>
                         {currentOpenPositions} / {maxOpenPositions}
                     </p>
@@ -743,6 +837,7 @@ function RiskPanel({ riskData }) {
                     }}
                 >
                     <p style={{ color: "#9ca3af" }}>Daily Loss Usage Bar</p>
+
                     <p style={{ color: dailyLossUsageColor, fontWeight: "bold" }}>
                         {dailyLossUsagePercent.toFixed(0)}%
                     </p>

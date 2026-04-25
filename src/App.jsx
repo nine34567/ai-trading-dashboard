@@ -6,7 +6,8 @@ import {
   stopBot,
   emergencyStopBot,
   saveSettings,
-  saveRiskSettings
+  saveRiskSettings,
+  saveAccountSettings
 } from "./api"
 import StatCard from "./components/StatCard"
 import Sidebar from "./components/Sidebar"
@@ -52,11 +53,21 @@ function App() {
     mode: ""
   })
 
+  const [accountSettingsForm, setAccountSettingsForm] = useState({
+    balance: "",
+    dailyPnl: "",
+    currentDailyLoss: ""
+  })
+
+  const [selectedAccountScenario, setSelectedAccountScenario] = useState("Custom")
+
   const [riskSettingsForm, setRiskSettingsForm] = useState({
     maxDailyLoss: "",
     riskPerTrade: "",
     maxOpenPositions: ""
   })
+
+  const [selectedRiskPreset, setSelectedRiskPreset] = useState("Custom")
 
   const [backtestData, setBacktestData] = useState({
     totalTrades: "-",
@@ -81,13 +92,126 @@ function App() {
 
   const [basePositions, setBasePositions] = useState([])
   const [historyItems, setHistoryItems] = useState([])
+
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
+
   const [settingsSaving, setSettingsSaving] = useState(false)
+  const [settingsError, setSettingsError] = useState("")
+  const [settingsSuccess, setSettingsSuccess] = useState("")
+
+  const [accountSettingsSaving, setAccountSettingsSaving] = useState(false)
+  const [accountSettingsError, setAccountSettingsError] = useState("")
+  const [accountSettingsSuccess, setAccountSettingsSuccess] = useState("")
+
   const [riskSettingsSaving, setRiskSettingsSaving] = useState(false)
+  const [riskSettingsError, setRiskSettingsError] = useState("")
+  const [riskSettingsSuccess, setRiskSettingsSuccess] = useState("")
+
   const [lastUpdated, setLastUpdated] = useState("-")
   const [loadError, setLoadError] = useState("")
   const [backendStatus, setBackendStatus] = useState("Checking...")
+
+  const symbolOptions = ["OILCash", "XAUUSD", "USDJPYmicro"]
+  const timeframeOptions = ["M5", "M15", "H1", "H4"]
+  const modeOptions = ["Paper Trading", "Live Trading"]
+
+  const defaultBotSettings = {
+    symbol: "OILCash",
+    timeframe: "M15",
+    mode: "Paper Trading"
+  }
+
+  const defaultAccountSettings = {
+    balance: "$33.85",
+    dailyPnl: "+$2.95",
+    currentDailyLoss: "$0.00"
+  }
+
+  const defaultRiskSettings = {
+    maxDailyLoss: "$10.00",
+    riskPerTrade: "1%",
+    maxOpenPositions: "3"
+  }
+
+  const accountScenarioOptions = [
+    {
+      name: "Normal Day",
+      balance: "$1000.00",
+      dailyPnl: "+$2.95",
+      currentDailyLoss: "$0.00",
+      description: "วันปกติ ยังไม่มีขาดทุนรายวัน"
+    },
+    {
+      name: "Small Loss",
+      balance: "$1000.00",
+      dailyPnl: "-$3.00",
+      currentDailyLoss: "$3.00",
+      description: "ขาดทุนเล็กน้อย แต่ยังไม่ชน daily loss limit"
+    },
+    {
+      name: "Daily Loss Hit",
+      balance: "$1000.00",
+      dailyPnl: "-$10.00",
+      currentDailyLoss: "$10.00",
+      description: "จำลองกรณีขาดทุนรายวันชน limit"
+    },
+    {
+      name: "Recovery Day",
+      balance: "$1000.00",
+      dailyPnl: "+$6.00",
+      currentDailyLoss: "$2.00",
+      description: "วันฟื้นตัว มีกำไร แต่ยังมี loss ที่เคยเกิดระหว่างวัน"
+    }
+  ]
+
+  const riskPresetOptions = [
+    {
+      name: "Conservative",
+      maxDailyLoss: "$5.00",
+      riskPerTrade: "0.5%",
+      maxOpenPositions: "2",
+      description: "ปลอดภัยสุด เหมาะกับช่วงเริ่มต้นหรือยังไม่มั่นใจ"
+    },
+    {
+      name: "Balanced",
+      maxDailyLoss: "$10.00",
+      riskPerTrade: "1%",
+      maxOpenPositions: "3",
+      description: "สมดุล เหมาะกับการเทรดทั่วไปแบบคุมความเสี่ยง"
+    },
+    {
+      name: "Aggressive",
+      maxDailyLoss: "$20.00",
+      riskPerTrade: "2%",
+      maxOpenPositions: "5",
+      description: "เสี่ยงสูงขึ้น เหมาะกับช่วงทดสอบระบบที่มั่นใจแล้ว"
+    }
+  ]
+
+  const getAccountScenarioNameFromValues = (accountSettings) => {
+    const matchedScenario = accountScenarioOptions.find((scenario) => {
+      return (
+        scenario.balance === String(accountSettings.balance || "") &&
+        scenario.dailyPnl === String(accountSettings.dailyPnl || "") &&
+        scenario.currentDailyLoss === String(accountSettings.currentDailyLoss || "")
+      )
+    })
+
+    return matchedScenario ? matchedScenario.name : "Custom"
+  }
+
+  const getRiskPresetNameFromValues = (riskSettings) => {
+    const matchedPreset = riskPresetOptions.find((preset) => {
+      return (
+        preset.maxDailyLoss === riskSettings.maxDailyLoss &&
+        preset.riskPerTrade === riskSettings.riskPerTrade &&
+        preset.maxOpenPositions === String(riskSettings.maxOpenPositions)
+      )
+    })
+
+    return matchedPreset ? matchedPreset.name : "Custom"
+  }
 
   const loadDashboardData = async () => {
     setLoading(true)
@@ -119,6 +243,23 @@ function App() {
 
       setRiskData(nextRiskControls)
 
+      const nextAccountSettings =
+        dashboardData.accountSettings || {
+          balance: dashboardData.balance || "",
+          dailyPnl: dashboardData.dailyPnl || "",
+          currentDailyLoss: nextRiskControls.currentDailyLoss || ""
+        }
+
+      setAccountSettingsForm({
+        balance: nextAccountSettings.balance || "",
+        dailyPnl: nextAccountSettings.dailyPnl || "",
+        currentDailyLoss: nextAccountSettings.currentDailyLoss || ""
+      })
+
+      setSelectedAccountScenario(
+        getAccountScenarioNameFromValues(nextAccountSettings)
+      )
+
       const nextRiskSettings =
         dashboardData.riskSettings || {
           maxDailyLoss: nextRiskControls.maxDailyLoss || "",
@@ -131,6 +272,8 @@ function App() {
         riskPerTrade: nextRiskSettings.riskPerTrade || "",
         maxOpenPositions: String(nextRiskSettings.maxOpenPositions || "")
       })
+
+      setSelectedRiskPreset(getRiskPresetNameFromValues(nextRiskSettings))
 
       setHistoryItems(dashboardData.historyItems || [])
       setLastUpdated(dashboardData.fetchedAt || "-")
@@ -197,12 +340,37 @@ function App() {
   const openPositionsCount = visiblePositions.length.toString()
   const recentActivities = historyItems.slice(0, 3)
 
+  const currentAccountScenario = getAccountScenarioNameFromValues({
+    balance,
+    dailyPnl,
+    currentDailyLoss: riskData.currentDailyLoss
+  })
+
+  const currentAccountScenarioDetails = accountScenarioOptions.find(
+    (scenario) => scenario.name === currentAccountScenario
+  )
+
+  const currentAccountScenarioDescription =
+    currentAccountScenarioDetails?.description ||
+    "ค่าปัจจุบันไม่ตรงกับ scenario สำเร็จรูปแบบ 100%"
+
+  const currentAccountScenarioColor =
+    currentAccountScenario === "Normal Day"
+      ? "#86efac"
+      : currentAccountScenario === "Small Loss"
+        ? "#facc15"
+        : currentAccountScenario === "Daily Loss Hit"
+          ? "#f87171"
+          : currentAccountScenario === "Recovery Day"
+            ? "#38bdf8"
+            : "#d1d5db"
+
   const searchedHistoryItems = historyItems.filter((item) => {
     const keyword = historySearch.trim().toLowerCase()
 
     if (!keyword) return true
 
-    const combinedText = `${item.date} ${item.symbol} ${item.type} ${item.pnl}`.toLowerCase()
+    const combinedText = `${item.date} ${item.symbol} ${item.type} ${item.pnl} ${item.detail}`.toLowerCase()
     return combinedText.includes(keyword)
   })
 
@@ -214,6 +382,13 @@ function App() {
   const totalHistoryRecords = historyItems.length
   const startActionsCount = historyItems.filter((item) => item.type === "START").length
   const stopActionsCount = historyItems.filter((item) => item.type === "STOP").length
+
+  const isBusy =
+    loading ||
+    actionLoading ||
+    settingsSaving ||
+    accountSettingsSaving ||
+    riskSettingsSaving
 
   const cardInputStyle = {
     width: "100%",
@@ -284,11 +459,8 @@ function App() {
     padding: "12px 24px",
     borderRadius: "12px",
     fontWeight: "bold",
-    cursor:
-      loading || actionLoading || settingsSaving || riskSettingsSaving
-        ? "not-allowed"
-        : "pointer",
-    opacity: loading || actionLoading || settingsSaving || riskSettingsSaving ? 0.7 : 1
+    cursor: isBusy ? "not-allowed" : "pointer",
+    opacity: isBusy ? 0.7 : 1
   }
 
   const retryButtonStyle = {
@@ -313,6 +485,17 @@ function App() {
     opacity: settingsSaving ? 0.7 : 1
   }
 
+  const accountSaveButtonStyle = {
+    backgroundColor: "#84cc16",
+    color: "black",
+    border: "none",
+    padding: "12px 24px",
+    borderRadius: "12px",
+    fontWeight: "bold",
+    cursor: accountSettingsSaving ? "not-allowed" : "pointer",
+    opacity: accountSettingsSaving ? 0.7 : 1
+  }
+
   const riskSaveButtonStyle = {
     backgroundColor: "#84cc16",
     color: "black",
@@ -322,6 +505,16 @@ function App() {
     fontWeight: "bold",
     cursor: riskSettingsSaving ? "not-allowed" : "pointer",
     opacity: riskSettingsSaving ? 0.7 : 1
+  }
+
+  const resetButtonStyle = {
+    backgroundColor: "#374151",
+    color: "white",
+    border: "none",
+    padding: "12px 24px",
+    borderRadius: "12px",
+    fontWeight: "bold",
+    cursor: "pointer"
   }
 
   const handleStart = async () => {
@@ -370,57 +563,309 @@ function App() {
   }
 
   const handleSettingsInputChange = (field, value) => {
+    setSettingsError("")
+    setSettingsSuccess("")
+
     setSettingsForm((prev) => ({
       ...prev,
       [field]: value
     }))
   }
 
+  const handleAccountSettingsInputChange = (field, value) => {
+    setSelectedAccountScenario("Custom")
+    setAccountSettingsError("")
+    setAccountSettingsSuccess("")
+
+    setAccountSettingsForm((prev) => ({
+      ...prev,
+      [field]: value
+    }))
+  }
+
+  const handleAccountScenarioChange = (scenarioName) => {
+    setSelectedAccountScenario(scenarioName)
+    setAccountSettingsError("")
+    setAccountSettingsSuccess("")
+
+    if (scenarioName === "Custom") return
+
+    const selectedScenario = accountScenarioOptions.find(
+      (scenario) => scenario.name === scenarioName
+    )
+
+    if (!selectedScenario) return
+
+    setAccountSettingsForm({
+      balance: selectedScenario.balance,
+      dailyPnl: selectedScenario.dailyPnl,
+      currentDailyLoss: selectedScenario.currentDailyLoss
+    })
+  }
+
   const handleRiskSettingsInputChange = (field, value) => {
+    setSelectedRiskPreset("Custom")
+    setRiskSettingsError("")
+    setRiskSettingsSuccess("")
+
     setRiskSettingsForm((prev) => ({
       ...prev,
       [field]: value
     }))
   }
 
+  const handleRiskPresetChange = (presetName) => {
+    setSelectedRiskPreset(presetName)
+    setRiskSettingsError("")
+    setRiskSettingsSuccess("")
+
+    if (presetName === "Custom") return
+
+    const selectedPreset = riskPresetOptions.find((preset) => preset.name === presetName)
+
+    if (!selectedPreset) return
+
+    setRiskSettingsForm({
+      maxDailyLoss: selectedPreset.maxDailyLoss,
+      riskPerTrade: selectedPreset.riskPerTrade,
+      maxOpenPositions: selectedPreset.maxOpenPositions
+    })
+  }
+
   const handleSaveSettings = async () => {
+    const symbol = settingsForm.symbol.trim()
+    const timeframe = settingsForm.timeframe.trim()
+    const mode = settingsForm.mode.trim()
+
+    setSettingsError("")
+    setSettingsSuccess("")
+
+    if (!symbol) {
+      setSettingsError("Symbol is required. Please select a trading symbol.")
+      return
+    }
+
+    if (!timeframe) {
+      setSettingsError("Timeframe is required. Please select a timeframe.")
+      return
+    }
+
+    if (!mode) {
+      setSettingsError("Mode is required. Please select a trading mode.")
+      return
+    }
+
     try {
       setSettingsSaving(true)
       setLoadError("")
 
-      const payload = {
-        symbol: settingsForm.symbol,
-        timeframe: settingsForm.timeframe,
-        mode: settingsForm.mode
-      }
+      await saveSettings({
+        symbol,
+        timeframe,
+        mode
+      })
 
-      await saveSettings(payload)
       await loadDashboardData()
+
+      setSettingsSuccess("Bot settings saved successfully.")
     } catch (error) {
-      setLoadError(error.message || "Failed to save settings")
+      setSettingsError(error.message || "Failed to save settings")
     } finally {
       setSettingsSaving(false)
+    }
+  }
+
+  const handleResetBotSettings = async () => {
+    const confirmed = window.confirm(
+      "Are you sure you want to reset Bot Settings?"
+    )
+
+    if (!confirmed) return
+
+    try {
+      setSettingsSaving(true)
+      setSettingsError("")
+      setSettingsSuccess("")
+      setLoadError("")
+
+      await saveSettings(defaultBotSettings)
+      await loadDashboardData()
+
+      setSettingsSuccess("Bot settings reset successfully.")
+    } catch (error) {
+      setSettingsError(error.message || "Failed to reset bot settings")
+    } finally {
+      setSettingsSaving(false)
+    }
+  }
+
+  const handleSaveAccountSettings = async () => {
+    try {
+      setAccountSettingsSaving(true)
+      setAccountSettingsError("")
+      setAccountSettingsSuccess("")
+
+      await saveAccountSettings({
+        balance: accountSettingsForm.balance,
+        dailyPnl: accountSettingsForm.dailyPnl,
+        currentDailyLoss: accountSettingsForm.currentDailyLoss
+      })
+
+      await loadDashboardData()
+
+      setAccountSettingsSuccess("Account settings saved successfully.")
+    } catch (error) {
+      setAccountSettingsError(error.message || "Failed to save account settings")
+    } finally {
+      setAccountSettingsSaving(false)
+    }
+  }
+
+  const handleResetAccountSettings = async () => {
+    const confirmed = window.confirm(
+      "Are you sure you want to reset Account Settings?"
+    )
+
+    if (!confirmed) return
+
+    try {
+      setAccountSettingsSaving(true)
+      setAccountSettingsError("")
+      setAccountSettingsSuccess("")
+      setLoadError("")
+
+      await saveAccountSettings(defaultAccountSettings)
+      await loadDashboardData()
+
+      setAccountSettingsSuccess("Account settings reset successfully.")
+    } catch (error) {
+      setAccountSettingsError(error.message || "Failed to reset account settings")
+    } finally {
+      setAccountSettingsSaving(false)
     }
   }
 
   const handleSaveRiskSettings = async () => {
     try {
       setRiskSettingsSaving(true)
-      setLoadError("")
+      setRiskSettingsError("")
+      setRiskSettingsSuccess("")
 
-      const payload = {
+      await saveRiskSettings({
         maxDailyLoss: riskSettingsForm.maxDailyLoss,
         riskPerTrade: riskSettingsForm.riskPerTrade,
         maxOpenPositions: riskSettingsForm.maxOpenPositions
-      }
+      })
 
-      await saveRiskSettings(payload)
       await loadDashboardData()
+
+      setRiskSettingsSuccess("Risk controls saved successfully.")
     } catch (error) {
-      setLoadError(error.message || "Failed to save risk settings")
+      setRiskSettingsError(error.message || "Failed to save risk settings")
     } finally {
       setRiskSettingsSaving(false)
     }
+  }
+
+  const handleResetRiskSettings = async () => {
+    const confirmed = window.confirm(
+      "Are you sure you want to reset Risk Controls?"
+    )
+
+    if (!confirmed) return
+
+    try {
+      setRiskSettingsSaving(true)
+      setRiskSettingsError("")
+      setRiskSettingsSuccess("")
+      setLoadError("")
+
+      await saveRiskSettings(defaultRiskSettings)
+      await loadDashboardData()
+
+      setRiskSettingsSuccess("Risk controls reset successfully.")
+    } catch (error) {
+      setRiskSettingsError(error.message || "Failed to reset risk controls")
+    } finally {
+      setRiskSettingsSaving(false)
+    }
+  }
+
+  const renderDashboardSectionCard = (title, subtitle, children) => {
+    return (
+      <section
+        style={{
+          backgroundColor: "#0f172a",
+          border: "1px solid #1f2937",
+          borderRadius: "20px",
+          padding: "22px",
+          marginBottom: "24px",
+          boxShadow: "0 18px 40px rgba(0, 0, 0, 0.22)"
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: "16px",
+            flexWrap: "wrap",
+            marginBottom: "18px"
+          }}
+        >
+          <div>
+            <p
+              style={{
+                color: "#84cc16",
+                fontSize: "12px",
+                fontWeight: "bold",
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                marginBottom: "8px"
+              }}
+            >
+              Dashboard Section
+            </p>
+
+            <h2
+              style={{
+                fontSize: "24px",
+                marginBottom: "6px",
+                color: "#f9fafb"
+              }}
+            >
+              {title}
+            </h2>
+
+            <p
+              style={{
+                color: "#9ca3af",
+                fontSize: "14px",
+                lineHeight: "1.6"
+              }}
+            >
+              {subtitle}
+            </p>
+          </div>
+
+          <div
+            style={{
+              backgroundColor: "#111827",
+              border: "1px solid #1f2937",
+              color: "#d1d5db",
+              padding: "8px 12px",
+              borderRadius: "999px",
+              fontSize: "12px",
+              fontWeight: "bold"
+            }}
+          >
+            SYSTEM PANEL
+          </div>
+        </div>
+
+        <div>{children}</div>
+      </section>
+    )
   }
 
   const renderDashboardHeader = () => {
@@ -541,21 +986,11 @@ function App() {
 
           <p
             style={{
-              color:
-                loadError
-                  ? "#f87171"
-                  : loading || actionLoading || settingsSaving || riskSettingsSaving
-                    ? "#facc15"
-                    : "#86efac",
+              color: loadError ? "#f87171" : isBusy ? "#facc15" : "#86efac",
               fontWeight: "bold"
             }}
           >
-            Data Status:{" "}
-            {loadError
-              ? "Error"
-              : loading || actionLoading || settingsSaving || riskSettingsSaving
-                ? "Loading..."
-                : "Ready"}
+            Data Status: {loadError ? "Error" : isBusy ? "Loading..." : "Ready"}
           </p>
         </div>
       </div>
@@ -574,45 +1009,54 @@ function App() {
       >
         <h3 style={{ marginBottom: "20px" }}>Recent Activity</h3>
 
-        {recentActivities.map((item, index) => (
-          <div
-            key={index}
-            style={{
-              borderTop: "1px solid #1f2937",
-              padding: "14px 0"
-            }}
-          >
+        {recentActivities.length === 0 ? (
+          <p style={{ color: "#9ca3af" }}>No recent activity.</p>
+        ) : (
+          recentActivities.map((item, index) => (
             <div
+              key={index}
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: "16px",
-                flexWrap: "wrap"
+                borderTop: "1px solid #1f2937",
+                padding: "14px 0"
               }}
             >
-              <div>
-                <p style={{ color: "#d1d5db", fontWeight: "bold", marginBottom: "4px" }}>
-                  {item.type}
-                </p>
-                <p style={{ color: "#9ca3af", fontSize: "14px" }}>
-                  {item.symbol} • {item.date}
-                </p>
-              </div>
-
               <div
                 style={{
-                  color:
-                    item.type === "SELL" || item.type === "STOP" || item.type === "EMERGENCY"
-                      ? "#f87171"
-                      : "#86efac",
-                  fontWeight: "bold"
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "16px",
+                  flexWrap: "wrap"
                 }}
               >
-                {item.pnl}
+                <div>
+                  <p style={{ color: "#d1d5db", fontWeight: "bold", marginBottom: "4px" }}>
+                    {item.type}
+                  </p>
+
+                  <p style={{ color: "#9ca3af", fontSize: "14px" }}>
+                    {item.symbol} • {item.date}
+                  </p>
+
+                  <p style={{ color: "#9ca3af", fontSize: "13px", marginTop: "4px" }}>
+                    {item.detail || "-"}
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    color:
+                      item.type === "SELL" || item.type === "STOP" || item.type === "EMERGENCY"
+                        ? "#f87171"
+                        : "#86efac",
+                    fontWeight: "bold"
+                  }}
+                >
+                  {item.pnl}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     )
   }
@@ -694,6 +1138,93 @@ function App() {
           <div style={{ backgroundColor: "#0b1220", border: "1px solid #1f2937", borderRadius: "14px", padding: "16px" }}>
             <p style={{ color: "#9ca3af", marginBottom: "8px" }}>Reason</p>
             <p style={{ color: "#d1d5db", fontWeight: "bold" }}>{aiInsights.reason}</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const renderAccountScenarioBadge = () => {
+    return (
+      <div
+        style={{
+          backgroundColor: "#111827",
+          padding: "24px",
+          borderRadius: "16px",
+          marginBottom: "24px"
+        }}
+      >
+        <h3 style={{ marginBottom: "20px" }}>Account Scenario Badge</h3>
+
+        <div
+          style={{
+            backgroundColor: "#0b1220",
+            border: `1px solid ${currentAccountScenarioColor}`,
+            borderRadius: "14px",
+            padding: "16px",
+            marginBottom: "16px"
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "16px",
+              flexWrap: "wrap",
+              alignItems: "center",
+              marginBottom: "8px"
+            }}
+          >
+            <p style={{ color: "#9ca3af" }}>Current Account Scenario</p>
+
+            <p
+              style={{
+                color: currentAccountScenarioColor,
+                fontWeight: "bold",
+                fontSize: "18px"
+              }}
+            >
+              {currentAccountScenario}
+            </p>
+          </div>
+
+          <p style={{ color: "#d1d5db", fontWeight: "bold" }}>
+            {currentAccountScenarioDescription}
+          </p>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: "16px"
+          }}
+        >
+          <div style={{ backgroundColor: "#0b1220", border: "1px solid #1f2937", borderRadius: "14px", padding: "16px" }}>
+            <p style={{ color: "#9ca3af", marginBottom: "8px" }}>Balance</p>
+            <p style={{ color: "#d1d5db", fontWeight: "bold" }}>{balance}</p>
+          </div>
+
+          <div style={{ backgroundColor: "#0b1220", border: "1px solid #1f2937", borderRadius: "14px", padding: "16px" }}>
+            <p style={{ color: "#9ca3af", marginBottom: "8px" }}>Daily P&L</p>
+            <p
+              style={{
+                color: dailyPnl.includes("-") ? "#f87171" : "#86efac",
+                fontWeight: "bold"
+              }}
+            >
+              {dailyPnl}
+            </p>
+          </div>
+
+          <div style={{ backgroundColor: "#0b1220", border: "1px solid #1f2937", borderRadius: "14px", padding: "16px" }}>
+            <p style={{ color: "#9ca3af", marginBottom: "8px" }}>
+              Current Daily Loss
+            </p>
+
+            <p style={{ color: "#f87171", fontWeight: "bold" }}>
+              {riskData.currentDailyLoss}
+            </p>
           </div>
         </div>
       </div>
@@ -790,60 +1321,95 @@ function App() {
         <>
           {renderDashboardHeader()}
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(5, 1fr)",
-              gap: "20px",
-              marginBottom: "30px"
-            }}
-          >
-            <StatCard title="Balance" value={balance} color="white" />
-            <StatCard title="Daily P&L" value={dailyPnl} color="#86efac" />
-            <StatCard title="Bot Status" value={botStatus} color={botStatus === "RUNNING" ? "#86efac" : "#f87171"} />
-            <StatCard title="System Mode" value={systemMode} color={systemModeColor} />
-            <StatCard title="Open Positions" value={openPositionsCount} color={visiblePositions.length > 0 ? "#86efac" : "#f87171"} />
-          </div>
-
-          {renderCurrentTradingConfiguration()}
-          {renderAiDecisionSnapshot()}
-          {renderSystemPerformanceSnapshot()}
-
-          <RiskPanel riskData={riskData} />
-
-          <PriceChart
-            data={chartData}
-            symbol={settingsData.symbol}
-            timeframe={settingsData.timeframe}
-          />
-
-          <div style={{ display: "flex", gap: "16px", marginBottom: "24px", flexWrap: "wrap" }}>
-            <button onClick={handleStart} disabled={botStatus === "RUNNING" || actionLoading} style={startButtonStyle}>
-              Start
-            </button>
-
-            <button onClick={handleStop} disabled={botStatus === "STOPPED" || actionLoading} style={stopButtonStyle}>
-              Stop
-            </button>
-
-            <button onClick={handleEmergencyStop} disabled={actionLoading} style={emergencyButtonStyle}>
-              Emergency Stop
-            </button>
-
-            <button
-              onClick={loadDashboardData}
-              disabled={loading || actionLoading || settingsSaving || riskSettingsSaving}
-              style={refreshButtonStyle}
+          {renderDashboardSectionCard(
+            "1. Account & Bot Overview",
+            "ภาพรวมบัญชี สถานะบอท และจำนวนออเดอร์ที่เปิดอยู่",
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(5, 1fr)",
+                gap: "20px"
+              }}
             >
-              {loading || actionLoading || settingsSaving || riskSettingsSaving
-                ? "Refreshing..."
-                : "Refresh Data"}
-            </button>
-          </div>
+              <StatCard title="Balance" value={balance} color="white" />
+              <StatCard title="Daily P&L" value={dailyPnl} color={dailyPnl.includes("-") ? "#f87171" : "#86efac"} />
+              <StatCard title="Bot Status" value={botStatus} color={botStatus === "RUNNING" ? "#86efac" : "#f87171"} />
+              <StatCard title="System Mode" value={systemMode} color={systemModeColor} />
+              <StatCard title="Open Positions" value={openPositionsCount} color={visiblePositions.length > 0 ? "#86efac" : "#f87171"} />
+            </div>
+          )}
 
-          {renderRecentActivity()}
+          {renderDashboardSectionCard(
+            "2. Trading Configuration",
+            "ค่าการเทรดปัจจุบัน เช่น Symbol, Timeframe, Mode และสถานะบอท",
+            renderCurrentTradingConfiguration()
+          )}
 
-          <OpenPositionsTable positions={visiblePositions} />
+          {renderDashboardSectionCard(
+            "3. AI & System Intelligence",
+            "สัญญาณ AI และค่าสถิติหลักของระบบ",
+            <>
+              {renderAiDecisionSnapshot()}
+              {renderSystemPerformanceSnapshot()}
+            </>
+          )}
+
+          {renderDashboardSectionCard(
+            "4. Account Scenario",
+            "สถานการณ์จำลองของบัญชี เช่น Normal Day, Small Loss หรือ Daily Loss Hit",
+            renderAccountScenarioBadge()
+          )}
+
+          {renderDashboardSectionCard(
+            "5. Risk Engine",
+            "ระบบประเมินความเสี่ยงก่อนอนุญาตให้เปิดออเดอร์ใหม่",
+            <RiskPanel riskData={riskData} />
+          )}
+
+          {renderDashboardSectionCard(
+            "6. Chart & Market Data",
+            "กราฟราคาและข้อมูลราคาจำลองจาก backend",
+            <PriceChart
+              data={chartData}
+              symbol={settingsData.symbol}
+              timeframe={settingsData.timeframe}
+            />
+          )}
+
+          {renderDashboardSectionCard(
+            "7. Trade Control",
+            "ปุ่มควบคุมบอท เริ่ม หยุด ฉุกเฉิน และรีเฟรชข้อมูล",
+            <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+              <button onClick={handleStart} disabled={botStatus === "RUNNING" || actionLoading} style={startButtonStyle}>
+                Start
+              </button>
+
+              <button onClick={handleStop} disabled={botStatus === "STOPPED" || actionLoading} style={stopButtonStyle}>
+                Stop
+              </button>
+
+              <button onClick={handleEmergencyStop} disabled={actionLoading} style={emergencyButtonStyle}>
+                Emergency Stop
+              </button>
+
+              <button
+                onClick={loadDashboardData}
+                disabled={isBusy}
+                style={refreshButtonStyle}
+              >
+                {isBusy ? "Refreshing..." : "Refresh Data"}
+              </button>
+            </div>
+          )}
+
+          {renderDashboardSectionCard(
+            "8. Activity & Positions",
+            "ประวัติล่าสุดและรายการออเดอร์ที่เปิดอยู่",
+            <>
+              {renderRecentActivity()}
+              <OpenPositionsTable positions={visiblePositions} />
+            </>
+          )}
         </>
       )
     }
@@ -913,7 +1479,7 @@ function App() {
                 type="text"
                 value={historySearch}
                 onChange={(event) => setHistorySearch(event.target.value)}
-                placeholder="ค้นหาจาก type, symbol, date, pnl..."
+                placeholder="ค้นหาจาก type, symbol, detail, date, pnl..."
                 style={cardInputStyle}
               />
             </div>
@@ -1010,39 +1576,104 @@ function App() {
 
             <div style={{ marginBottom: "16px" }}>
               <label style={labelStyle}>Symbol</label>
-              <input
-                type="text"
+
+              <select
                 value={settingsForm.symbol}
                 onChange={(event) => handleSettingsInputChange("symbol", event.target.value)}
                 style={cardInputStyle}
-              />
+              >
+                <option value="">Select Symbol</option>
+                {symbolOptions.map((symbol) => (
+                  <option key={symbol} value={symbol}>
+                    {symbol}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div style={{ marginBottom: "16px" }}>
               <label style={labelStyle}>Timeframe</label>
-              <input
-                type="text"
+
+              <select
                 value={settingsForm.timeframe}
                 onChange={(event) => handleSettingsInputChange("timeframe", event.target.value)}
                 style={cardInputStyle}
-              />
+              >
+                <option value="">Select Timeframe</option>
+                {timeframeOptions.map((timeframe) => (
+                  <option key={timeframe} value={timeframe}>
+                    {timeframe}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div style={{ marginBottom: "20px" }}>
               <label style={labelStyle}>Mode</label>
-              <input
-                type="text"
+
+              <select
                 value={settingsForm.mode}
                 onChange={(event) => handleSettingsInputChange("mode", event.target.value)}
                 style={cardInputStyle}
-              />
+              >
+                <option value="">Select Mode</option>
+                {modeOptions.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
               <button onClick={handleSaveSettings} disabled={settingsSaving} style={saveButtonStyle}>
                 {settingsSaving ? "Saving..." : "Save Settings"}
               </button>
+
+              <button
+                onClick={handleResetBotSettings}
+                disabled={settingsSaving}
+                style={resetButtonStyle}
+              >
+                Reset Bot Settings
+              </button>
             </div>
+
+            {settingsError && (
+              <div
+                style={{
+                  backgroundColor: "#450a0a",
+                  border: "1px solid #991b1b",
+                  borderRadius: "14px",
+                  padding: "16px",
+                  marginBottom: "16px"
+                }}
+              >
+                <p style={{ color: "#fecaca", fontWeight: "bold", marginBottom: "8px" }}>
+                  Bot Settings Error:
+                </p>
+
+                <p style={{ color: "#fecaca" }}>
+                  {settingsError}
+                </p>
+              </div>
+            )}
+
+            {settingsSuccess && (
+              <div
+                style={{
+                  backgroundColor: "#052e16",
+                  border: "1px solid #166534",
+                  borderRadius: "14px",
+                  padding: "16px",
+                  marginBottom: "16px"
+                }}
+              >
+                <p style={{ color: "#bbf7d0", fontWeight: "bold" }}>
+                  {settingsSuccess}
+                </p>
+              </div>
+            )}
 
             <div
               style={{
@@ -1068,11 +1699,287 @@ function App() {
             </div>
           </div>
 
+          <div style={{ backgroundColor: "#111827", padding: "24px", borderRadius: "16px", marginBottom: "24px" }}>
+            <h3 style={{ marginBottom: "20px" }}>Account Summary Settings</h3>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label style={labelStyle}>Account Scenario</label>
+
+              <select
+                value={selectedAccountScenario}
+                onChange={(event) => handleAccountScenarioChange(event.target.value)}
+                style={cardInputStyle}
+              >
+                <option value="Custom">Custom</option>
+
+                {accountScenarioOptions.map((scenario) => (
+                  <option key={scenario.name} value={scenario.name}>
+                    {scenario.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div
+              style={{
+                backgroundColor: "#0b1220",
+                border: "1px solid #1f2937",
+                borderRadius: "14px",
+                padding: "16px",
+                marginBottom: "16px"
+              }}
+            >
+              <p style={{ color: "#9ca3af", marginBottom: "12px" }}>
+                Account Scenario Guide
+              </p>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(4, 1fr)",
+                  gap: "14px"
+                }}
+              >
+                {accountScenarioOptions.map((scenario) => (
+                  <div
+                    key={scenario.name}
+                    style={{
+                      backgroundColor:
+                        selectedAccountScenario === scenario.name ? "#1a2e05" : "#111827",
+                      border:
+                        selectedAccountScenario === scenario.name
+                          ? "1px solid #84cc16"
+                          : "1px solid #1f2937",
+                      borderRadius: "14px",
+                      padding: "14px"
+                    }}
+                  >
+                    <p style={{ color: "#d1d5db", fontWeight: "bold", marginBottom: "8px" }}>
+                      {scenario.name}
+                    </p>
+
+                    <p style={{ color: "#9ca3af", marginBottom: "6px", fontSize: "14px" }}>
+                      Balance: {scenario.balance}
+                    </p>
+
+                    <p style={{ color: "#9ca3af", marginBottom: "6px", fontSize: "14px" }}>
+                      Daily P&L: {scenario.dailyPnl}
+                    </p>
+
+                    <p style={{ color: "#9ca3af", marginBottom: "8px", fontSize: "14px" }}>
+                      Daily Loss: {scenario.currentDailyLoss}
+                    </p>
+
+                    <p style={{ color: "#d1d5db", fontSize: "13px" }}>
+                      {scenario.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label style={labelStyle}>Balance</label>
+
+              <input
+                type="text"
+                value={accountSettingsForm.balance}
+                onChange={(event) =>
+                  handleAccountSettingsInputChange("balance", event.target.value)
+                }
+                placeholder="$33.85"
+                style={cardInputStyle}
+              />
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label style={labelStyle}>Daily P&L</label>
+
+              <input
+                type="text"
+                value={accountSettingsForm.dailyPnl}
+                onChange={(event) =>
+                  handleAccountSettingsInputChange("dailyPnl", event.target.value)
+                }
+                placeholder="+2.95 or -5.00"
+                style={cardInputStyle}
+              />
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <label style={labelStyle}>Current Daily Loss</label>
+
+              <input
+                type="text"
+                value={accountSettingsForm.currentDailyLoss}
+                onChange={(event) =>
+                  handleAccountSettingsInputChange("currentDailyLoss", event.target.value)
+                }
+                placeholder="0 or 2.50"
+                style={cardInputStyle}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
+              <button
+                onClick={handleSaveAccountSettings}
+                disabled={accountSettingsSaving}
+                style={accountSaveButtonStyle}
+              >
+                {accountSettingsSaving ? "Saving..." : "Save Account Settings"}
+              </button>
+
+              <button
+                onClick={handleResetAccountSettings}
+                disabled={accountSettingsSaving}
+                style={resetButtonStyle}
+              >
+                Reset Account Settings
+              </button>
+            </div>
+
+            {accountSettingsError && (
+              <div
+                style={{
+                  backgroundColor: "#450a0a",
+                  border: "1px solid #991b1b",
+                  borderRadius: "14px",
+                  padding: "16px",
+                  marginBottom: "16px"
+                }}
+              >
+                <p style={{ color: "#fecaca", fontWeight: "bold", marginBottom: "8px" }}>
+                  Account Settings Error:
+                </p>
+
+                <p style={{ color: "#fecaca" }}>
+                  {accountSettingsError}
+                </p>
+              </div>
+            )}
+
+            {accountSettingsSuccess && (
+              <div
+                style={{
+                  backgroundColor: "#052e16",
+                  border: "1px solid #166534",
+                  borderRadius: "14px",
+                  padding: "16px",
+                  marginBottom: "16px"
+                }}
+              >
+                <p style={{ color: "#bbf7d0", fontWeight: "bold" }}>
+                  {accountSettingsSuccess}
+                </p>
+              </div>
+            )}
+
+            <div
+              style={{
+                backgroundColor: "#0b1220",
+                border: "1px solid #1f2937",
+                borderRadius: "14px",
+                padding: "16px"
+              }}
+            >
+              <p style={{ color: "#9ca3af", marginBottom: "10px" }}>Current Account Summary</p>
+
+              <p style={{ color: "#d1d5db", marginBottom: "8px" }}>
+                Balance: {balance}
+              </p>
+
+              <p style={{ color: "#d1d5db", marginBottom: "8px" }}>
+                Daily P&L: {dailyPnl}
+              </p>
+
+              <p style={{ color: "#d1d5db" }}>
+                Current Daily Loss: {riskData.currentDailyLoss}
+              </p>
+            </div>
+          </div>
+
           <div style={{ backgroundColor: "#111827", padding: "24px", borderRadius: "16px" }}>
             <h3 style={{ marginBottom: "20px" }}>Risk Controls Settings</h3>
 
             <div style={{ marginBottom: "16px" }}>
+              <label style={labelStyle}>Risk Preset</label>
+
+              <select
+                value={selectedRiskPreset}
+                onChange={(event) => handleRiskPresetChange(event.target.value)}
+                style={cardInputStyle}
+              >
+                <option value="Custom">Custom</option>
+
+                {riskPresetOptions.map((preset) => (
+                  <option key={preset.name} value={preset.name}>
+                    {preset.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div
+              style={{
+                backgroundColor: "#0b1220",
+                border: "1px solid #1f2937",
+                borderRadius: "14px",
+                padding: "16px",
+                marginBottom: "16px"
+              }}
+            >
+              <p style={{ color: "#9ca3af", marginBottom: "12px" }}>
+                Risk Preset Guide
+              </p>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, 1fr)",
+                  gap: "14px"
+                }}
+              >
+                {riskPresetOptions.map((preset) => (
+                  <div
+                    key={preset.name}
+                    style={{
+                      backgroundColor:
+                        selectedRiskPreset === preset.name ? "#1a2e05" : "#111827",
+                      border:
+                        selectedRiskPreset === preset.name
+                          ? "1px solid #84cc16"
+                          : "1px solid #1f2937",
+                      borderRadius: "14px",
+                      padding: "14px"
+                    }}
+                  >
+                    <p style={{ color: "#d1d5db", fontWeight: "bold", marginBottom: "8px" }}>
+                      {preset.name}
+                    </p>
+
+                    <p style={{ color: "#9ca3af", marginBottom: "6px", fontSize: "14px" }}>
+                      Max Loss: {preset.maxDailyLoss}
+                    </p>
+
+                    <p style={{ color: "#9ca3af", marginBottom: "6px", fontSize: "14px" }}>
+                      Risk/Trade: {preset.riskPerTrade}
+                    </p>
+
+                    <p style={{ color: "#9ca3af", marginBottom: "8px", fontSize: "14px" }}>
+                      Max Positions: {preset.maxOpenPositions}
+                    </p>
+
+                    <p style={{ color: "#d1d5db", fontSize: "13px" }}>
+                      {preset.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
               <label style={labelStyle}>Max Daily Loss</label>
+
               <input
                 type="text"
                 value={riskSettingsForm.maxDailyLoss}
@@ -1086,6 +1993,7 @@ function App() {
 
             <div style={{ marginBottom: "16px" }}>
               <label style={labelStyle}>Risk Per Trade</label>
+
               <input
                 type="text"
                 value={riskSettingsForm.riskPerTrade}
@@ -1099,6 +2007,7 @@ function App() {
 
             <div style={{ marginBottom: "20px" }}>
               <label style={labelStyle}>Max Open Positions</label>
+
               <input
                 type="text"
                 value={riskSettingsForm.maxOpenPositions}
@@ -1118,7 +2027,51 @@ function App() {
               >
                 {riskSettingsSaving ? "Saving..." : "Save Risk Controls"}
               </button>
+
+              <button
+                onClick={handleResetRiskSettings}
+                disabled={riskSettingsSaving}
+                style={resetButtonStyle}
+              >
+                Reset Risk Controls
+              </button>
             </div>
+
+            {riskSettingsError && (
+              <div
+                style={{
+                  backgroundColor: "#450a0a",
+                  border: "1px solid #991b1b",
+                  borderRadius: "14px",
+                  padding: "16px",
+                  marginBottom: "16px"
+                }}
+              >
+                <p style={{ color: "#fecaca", fontWeight: "bold", marginBottom: "8px" }}>
+                  Risk Settings Error:
+                </p>
+
+                <p style={{ color: "#fecaca" }}>
+                  {riskSettingsError}
+                </p>
+              </div>
+            )}
+
+            {riskSettingsSuccess && (
+              <div
+                style={{
+                  backgroundColor: "#052e16",
+                  border: "1px solid #166534",
+                  borderRadius: "14px",
+                  padding: "16px",
+                  marginBottom: "16px"
+                }}
+              >
+                <p style={{ color: "#bbf7d0", fontWeight: "bold" }}>
+                  {riskSettingsSuccess}
+                </p>
+              </div>
+            )}
 
             <div
               style={{

@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 from pydantic import BaseModel
@@ -28,24 +28,33 @@ risk_settings_data = {
     "maxOpenPositions": "3"
 }
 
+account_settings_data = {
+    "balance": "$33.85",
+    "dailyPnl": "+$2.95",
+    "currentDailyLoss": "$0.00"
+}
+
 history_items = [
     {
         "date": "2026-04-23 09:00",
         "symbol": "SYSTEM",
         "type": "START",
-        "pnl": "-"
+        "pnl": "-",
+        "detail": "Bot started."
     },
     {
         "date": "2026-04-22 14:30",
         "symbol": "OILCash",
         "type": "SELL",
-        "pnl": "+1.24"
+        "pnl": "+1.24",
+        "detail": "Example trade record."
     },
     {
         "date": "2026-04-22 10:15",
         "symbol": "USDJPYmicro",
         "type": "SELL",
-        "pnl": "+0.15"
+        "pnl": "+0.15",
+        "detail": "Example trade record."
     }
 ]
 
@@ -62,12 +71,154 @@ class RiskSettingsPayload(BaseModel):
     maxOpenPositions: str
 
 
+class AccountSettingsPayload(BaseModel):
+    balance: str
+    dailyPnl: str
+    currentDailyLoss: str
+
+
+def try_parse_money(value):
+    cleaned_value = (
+        str(value)
+        .replace("$", "")
+        .replace(",", "")
+        .strip()
+    )
+
+    try:
+        return float(cleaned_value)
+    except ValueError:
+        return None
+
+
 def parse_money(value):
-    cleaned_value = str(value).replace("$", "").replace(",", "")
+    parsed_value = try_parse_money(value)
+    return parsed_value if parsed_value is not None else 0.0
+
+
+def parse_percent(value):
+    cleaned_value = str(value).replace("%", "").strip()
+
     try:
         return float(cleaned_value)
     except ValueError:
         return 0.0
+
+
+def format_money(value):
+    return f"${value:.2f}"
+
+
+def format_signed_money(value):
+    if value >= 0:
+        return f"+${value:.2f}"
+
+    return f"-${abs(value):.2f}"
+
+
+def format_change_detail(old_data, new_data, labels):
+    changes = []
+
+    for key, label in labels.items():
+        old_value = str(old_data.get(key, "-"))
+        new_value = str(new_data.get(key, "-"))
+
+        if old_value != new_value:
+            changes.append(f"{label}: {old_value} → {new_value}")
+
+    if len(changes) == 0:
+        return "No value changed."
+
+    return "; ".join(changes)
+
+
+def validate_risk_settings(payload):
+    max_daily_loss_amount = parse_money(payload.maxDailyLoss)
+    risk_per_trade_percent = parse_percent(payload.riskPerTrade)
+
+    try:
+        max_open_positions = int(str(payload.maxOpenPositions).strip())
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Max Open Positions must be a whole number, such as 1, 2, 3, or 5."
+        )
+
+    if max_daily_loss_amount <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Max Daily Loss must be greater than 0, such as $10.00 or 20."
+        )
+
+    if risk_per_trade_percent <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Risk Per Trade must be greater than 0, such as 0.5% or 1%."
+        )
+
+    if risk_per_trade_percent > 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Risk Per Trade should not be greater than 100%."
+        )
+
+    if max_open_positions < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Max Open Positions must be at least 1."
+        )
+
+    normalized_risk_settings = {
+        "maxDailyLoss": f"${max_daily_loss_amount:.2f}",
+        "riskPerTrade": f"{risk_per_trade_percent:g}%",
+        "maxOpenPositions": str(max_open_positions)
+    }
+
+    return normalized_risk_settings
+
+
+def validate_account_settings(payload):
+    balance_amount = try_parse_money(payload.balance)
+    daily_pnl_amount = try_parse_money(payload.dailyPnl)
+    current_daily_loss_amount = try_parse_money(payload.currentDailyLoss)
+
+    if balance_amount is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Balance must be a number, such as $33.85 or 1000."
+        )
+
+    if daily_pnl_amount is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Daily P&L must be a number, such as +2.95, -5.00, or 0."
+        )
+
+    if current_daily_loss_amount is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Current Daily Loss must be a number, such as 0, 2.50, or 10."
+        )
+
+    if balance_amount < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Balance must not be negative."
+        )
+
+    if current_daily_loss_amount < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Current Daily Loss must not be negative. Enter loss as a positive number."
+        )
+
+    normalized_account_settings = {
+        "balance": format_money(balance_amount),
+        "dailyPnl": format_signed_money(daily_pnl_amount),
+        "currentDailyLoss": format_money(current_daily_loss_amount)
+    }
+
+    return normalized_account_settings
 
 
 def get_system_mode():
@@ -75,7 +226,7 @@ def get_system_mode():
 
 
 def get_daily_pnl():
-    return "+$2.95" if bot_status == "RUNNING" else "+$0.00"
+    return account_settings_data["dailyPnl"]
 
 
 def get_positions():
@@ -104,14 +255,15 @@ def get_positions():
     return []
 
 
-def add_history_item(action_type, pnl="-"):
+def add_history_item(action_type, symbol="SYSTEM", pnl="-", detail="-"):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     new_item = {
         "date": now,
-        "symbol": "SYSTEM",
+        "symbol": symbol,
         "type": action_type,
-        "pnl": pnl
+        "pnl": pnl,
+        "detail": detail
     }
 
     history_items.insert(0, new_item)
@@ -142,7 +294,7 @@ def get_risk_controls():
     positions = get_positions()
 
     max_daily_loss_amount = parse_money(risk_settings_data["maxDailyLoss"])
-    current_daily_loss_amount = 0.00
+    current_daily_loss_amount = parse_money(account_settings_data["currentDailyLoss"])
 
     daily_loss_usage_percent = (
         (current_daily_loss_amount / max_daily_loss_amount) * 100
@@ -158,7 +310,7 @@ def get_risk_controls():
 
     return {
         "maxDailyLoss": risk_settings_data["maxDailyLoss"],
-        "currentDailyLoss": f"${current_daily_loss_amount:.2f}",
+        "currentDailyLoss": account_settings_data["currentDailyLoss"],
         "dailyLossUsagePercent": round(daily_loss_usage_percent, 2),
         "dailyLossStatus": daily_loss_status,
         "riskPerTrade": risk_settings_data["riskPerTrade"],
@@ -182,8 +334,9 @@ def get_dashboard_data():
         "botStatus": bot_status,
         "systemMode": get_system_mode(),
         "lastAction": last_action,
-        "balance": "$33.85",
+        "balance": account_settings_data["balance"],
         "dailyPnl": get_daily_pnl(),
+        "accountSettings": account_settings_data,
         "aiInsights": {
             "signal": "HOLD",
             "reason": "Market is extended, waiting for better entry",
@@ -221,7 +374,13 @@ def start_bot():
 
     bot_status = "RUNNING"
     last_action = "Bot started"
-    add_history_item("START")
+
+    add_history_item(
+        action_type="START",
+        symbol="SYSTEM",
+        pnl="-",
+        detail="Bot status changed to RUNNING."
+    )
 
     return {
         "botStatus": bot_status,
@@ -240,7 +399,13 @@ def stop_bot():
 
     bot_status = "STOPPED"
     last_action = "Bot stopped"
-    add_history_item("STOP")
+
+    add_history_item(
+        action_type="STOP",
+        symbol="SYSTEM",
+        pnl="-",
+        detail="Bot status changed to STOPPED."
+    )
 
     return {
         "botStatus": bot_status,
@@ -259,7 +424,13 @@ def emergency_stop_bot():
 
     bot_status = "STOPPED"
     last_action = "Emergency stop activated"
-    add_history_item("EMERGENCY")
+
+    add_history_item(
+        action_type="EMERGENCY",
+        symbol="SYSTEM",
+        pnl="-",
+        detail="Emergency stop activated. Bot status changed to STOPPED."
+    )
 
     return {
         "botStatus": bot_status,
@@ -276,14 +447,33 @@ def save_settings(payload: SettingsPayload):
     global settings_data
     global last_action
 
-    settings_data = {
+    old_settings_data = settings_data.copy()
+
+    new_settings_data = {
         "symbol": payload.symbol,
         "timeframe": payload.timeframe,
         "mode": payload.mode
     }
 
+    detail = format_change_detail(
+        old_data=old_settings_data,
+        new_data=new_settings_data,
+        labels={
+            "symbol": "Symbol",
+            "timeframe": "Timeframe",
+            "mode": "Mode"
+        }
+    )
+
+    settings_data = new_settings_data
     last_action = "Settings saved"
-    add_history_item("SETTINGS")
+
+    add_history_item(
+        action_type="SETTINGS",
+        symbol="BOT",
+        pnl="-",
+        detail=detail
+    )
 
     return {
         "message": "Settings saved successfully",
@@ -298,14 +488,28 @@ def save_risk_settings(payload: RiskSettingsPayload):
     global risk_settings_data
     global last_action
 
-    risk_settings_data = {
-        "maxDailyLoss": payload.maxDailyLoss,
-        "riskPerTrade": payload.riskPerTrade,
-        "maxOpenPositions": payload.maxOpenPositions
-    }
+    old_risk_settings_data = risk_settings_data.copy()
+    validated_risk_settings = validate_risk_settings(payload)
 
+    detail = format_change_detail(
+        old_data=old_risk_settings_data,
+        new_data=validated_risk_settings,
+        labels={
+            "maxDailyLoss": "Max Daily Loss",
+            "riskPerTrade": "Risk Per Trade",
+            "maxOpenPositions": "Max Open Positions"
+        }
+    )
+
+    risk_settings_data = validated_risk_settings
     last_action = "Risk settings saved"
-    add_history_item("RISK SETTINGS")
+
+    add_history_item(
+        action_type="SETTINGS",
+        symbol="RISK",
+        pnl="-",
+        detail=detail
+    )
 
     return {
         "message": "Risk settings saved successfully",
@@ -313,4 +517,54 @@ def save_risk_settings(payload: RiskSettingsPayload):
         "riskControls": get_risk_controls(),
         "lastAction": last_action,
         "historyItems": history_items
+    }
+
+
+@app.post("/api/account-settings")
+def save_account_settings(payload: AccountSettingsPayload):
+    global account_settings_data
+    global last_action
+
+    old_account_settings_data = account_settings_data.copy()
+    validated_account_settings = validate_account_settings(payload)
+
+    detail = format_change_detail(
+        old_data=old_account_settings_data,
+        new_data=validated_account_settings,
+        labels={
+            "balance": "Balance",
+            "dailyPnl": "Daily P&L",
+            "currentDailyLoss": "Current Daily Loss"
+        }
+    )
+
+    account_settings_data = validated_account_settings
+    last_action = "Account settings saved"
+
+    add_history_item(
+        action_type="SETTINGS",
+        symbol="ACCOUNT",
+        pnl="-",
+        detail=detail
+    )
+
+    return {
+        "message": "Account settings saved successfully",
+        "accountSettings": account_settings_data,
+        "riskControls": get_risk_controls(),
+        "lastAction": last_action,
+        "historyItems": history_items
+    }
+@app.post("/api/history/clear")
+def clear_history():
+    global history_items
+    global last_action
+
+    history_items = []
+    last_action = "History cleared"
+
+    return {
+        "message": "History cleared successfully",
+        "historyItems": history_items,
+        "lastAction": last_action
     }
