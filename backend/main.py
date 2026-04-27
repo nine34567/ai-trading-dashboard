@@ -37,6 +37,7 @@ account_settings_data = {
 history_items = [
     {
         "date": "2026-04-23 09:00",
+        "area": "BOT",
         "symbol": "SYSTEM",
         "type": "START",
         "pnl": "-",
@@ -44,6 +45,7 @@ history_items = [
     },
     {
         "date": "2026-04-22 14:30",
+        "area": "BOT",
         "symbol": "OILCash",
         "type": "SELL",
         "pnl": "+1.24",
@@ -51,6 +53,7 @@ history_items = [
     },
     {
         "date": "2026-04-22 10:15",
+        "area": "BOT",
         "symbol": "USDJPYmicro",
         "type": "SELL",
         "pnl": "+0.15",
@@ -255,11 +258,12 @@ def get_positions():
     return []
 
 
-def add_history_item(action_type, symbol="SYSTEM", pnl="-", detail="-"):
+def add_history_item(action_type, area="SYSTEM", symbol="SYSTEM", pnl="-", detail="-"):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     new_item = {
         "date": now,
+        "area": area,
         "symbol": symbol,
         "type": action_type,
         "pnl": pnl,
@@ -377,6 +381,7 @@ def start_bot():
 
     add_history_item(
         action_type="START",
+        area="BOT",
         symbol="SYSTEM",
         pnl="-",
         detail="Bot status changed to RUNNING."
@@ -402,6 +407,7 @@ def stop_bot():
 
     add_history_item(
         action_type="STOP",
+        area="BOT",
         symbol="SYSTEM",
         pnl="-",
         detail="Bot status changed to STOPPED."
@@ -427,6 +433,7 @@ def emergency_stop_bot():
 
     add_history_item(
         action_type="EMERGENCY",
+        area="RISK",
         symbol="SYSTEM",
         pnl="-",
         detail="Emergency stop activated. Bot status changed to STOPPED."
@@ -470,7 +477,8 @@ def save_settings(payload: SettingsPayload):
 
     add_history_item(
         action_type="SETTINGS",
-        symbol="BOT",
+        area="BOT",
+        symbol=settings_data["symbol"],
         pnl="-",
         detail=detail
     )
@@ -506,7 +514,8 @@ def save_risk_settings(payload: RiskSettingsPayload):
 
     add_history_item(
         action_type="SETTINGS",
-        symbol="RISK",
+        area="RISK",
+        symbol="SYSTEM",
         pnl="-",
         detail=detail
     )
@@ -543,7 +552,8 @@ def save_account_settings(payload: AccountSettingsPayload):
 
     add_history_item(
         action_type="SETTINGS",
-        symbol="ACCOUNT",
+        area="ACCOUNT",
+        symbol="SYSTEM",
         pnl="-",
         detail=detail
     )
@@ -555,6 +565,8 @@ def save_account_settings(payload: AccountSettingsPayload):
         "lastAction": last_action,
         "historyItems": history_items
     }
+
+
 @app.post("/api/history/clear")
 def clear_history():
     global history_items
