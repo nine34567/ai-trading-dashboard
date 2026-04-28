@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { Component, useEffect, useState } from "react"
 import {
   getDashboardData,
   getBackendHealth,
@@ -9,12 +9,362 @@ import {
   saveRiskSettings,
   saveAccountSettings
 } from "./api"
-import StatCard from "./components/StatCard"
 import Sidebar from "./components/Sidebar"
 import OpenPositionsTable from "./components/OpenPositionsTable"
 import HistoryTable from "./components/HistoryTable"
 import PriceChart from "./components/PriceChart"
 import RiskPanel from "./components/RiskPanel"
+import OperationsPanel from "./components/OperationsPanel"
+import AiInsightsPanel from "./components/AiInsightsPanel"
+import AiUsagePanel from "./components/AiUsagePanel"
+import QuantAnalyticsPanel from "./components/QuantAnalyticsPanel"
+
+
+class OperationsPanelErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false, errorMessage: "" }
+  }
+
+  static getDerivedStateFromError(error) {
+    return {
+      hasError: true,
+      errorMessage: error?.message || "Unknown OperationsPanel error"
+    }
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false, errorMessage: "" })
+    }
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("OperationsPanel crashed:", error, errorInfo)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          style={{
+            backgroundColor: "#450a0a",
+            border: "1px solid #991b1b",
+            borderRadius: "20px",
+            padding: "22px"
+          }}
+        >
+          <p
+            style={{
+              color: "#fecaca",
+              fontWeight: "bold",
+              marginBottom: "10px",
+              fontSize: "18px"
+            }}
+          >
+            Full OperationsPanel crashed, but Diagnostics page is protected.
+          </p>
+
+          <p style={{ color: "#fecaca", lineHeight: "1.7", marginBottom: "14px" }}>
+            Error: {this.state.errorMessage}
+          </p>
+
+          <p style={{ color: "#fca5a5", lineHeight: "1.7" }}>
+            ตอนนี้แปลว่าปัญหาอยู่ใน OperationsPanel หรือ component ลูกตัวใดตัวหนึ่ง
+            ไม่ใช่ Sidebar และไม่ใช่หน้า Diagnostics หลัก ให้เปิด DevTools Console
+            เพื่อดู stack trace เพิ่มเติม หรือแยก debug ทีละ component ใน chain.
+          </p>
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
+}
+
+function PageHeader({ title, subtitle, children }) {
+  return (
+    <div
+      style={{
+        background:
+          "linear-gradient(135deg, rgba(17, 24, 39, 0.98), rgba(15, 23, 42, 0.94))",
+        border: "1px solid rgba(55, 65, 81, 0.7)",
+        borderRadius: "24px",
+        padding: "28px",
+        marginBottom: "24px",
+        boxShadow: "0 24px 60px rgba(0, 0, 0, 0.28)",
+        position: "relative",
+        overflow: "hidden"
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "radial-gradient(circle at top right, rgba(56, 189, 248, 0.12), transparent 30%), radial-gradient(circle at bottom left, rgba(132, 204, 22, 0.12), transparent 35%)",
+          pointerEvents: "none"
+        }}
+      />
+
+      <div
+        style={{
+          position: "relative",
+          zIndex: 1,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: "20px",
+          flexWrap: "wrap"
+        }}
+      >
+        <div>
+          <p
+            style={{
+              color: "#84cc16",
+              fontSize: "12px",
+              fontWeight: "bold",
+              textTransform: "uppercase",
+              letterSpacing: "0.14em",
+              marginBottom: "10px"
+            }}
+          >
+            Institutional Trading Workspace
+          </p>
+
+          <h1
+            style={{
+              fontSize: "40px",
+              marginBottom: "12px",
+              color: "#f9fafb",
+              letterSpacing: "-0.03em"
+            }}
+          >
+            {title}
+          </h1>
+
+          <p
+            style={{
+              color: "#9ca3af",
+              lineHeight: "1.7",
+              maxWidth: "850px",
+              fontSize: "15px"
+            }}
+          >
+            {subtitle}
+          </p>
+        </div>
+
+        {children ? <div>{children}</div> : null}
+      </div>
+    </div>
+  )
+}
+
+function SectionCard({ eyebrow, title, subtitle, rightSlot, children }) {
+  return (
+    <section
+      style={{
+        background:
+          "linear-gradient(135deg, rgba(17, 24, 39, 0.98), rgba(15, 23, 42, 0.96))",
+        border: "1px solid rgba(55, 65, 81, 0.72)",
+        borderRadius: "24px",
+        padding: "24px",
+        marginBottom: "24px",
+        boxShadow: "0 20px 45px rgba(0, 0, 0, 0.22)",
+        position: "relative",
+        overflow: "hidden"
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: "3px",
+          background:
+            "linear-gradient(90deg, rgba(132, 204, 22, 1), rgba(56, 189, 248, 1), rgba(132, 204, 22, 0.2))"
+        }}
+      />
+
+      <div
+        style={{
+          position: "absolute",
+          top: "-60px",
+          right: "-60px",
+          width: "180px",
+          height: "180px",
+          borderRadius: "999px",
+          background: "rgba(132, 204, 22, 0.06)",
+          filter: "blur(10px)",
+          pointerEvents: "none"
+        }}
+      />
+
+      <div
+        style={{
+          position: "relative",
+          zIndex: 1,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: "18px",
+          flexWrap: "wrap",
+          marginBottom: "20px"
+        }}
+      >
+        <div>
+          {eyebrow ? (
+            <p
+              style={{
+                color: "#84cc16",
+                fontSize: "11px",
+                fontWeight: "bold",
+                textTransform: "uppercase",
+                letterSpacing: "0.14em",
+                marginBottom: "10px"
+              }}
+            >
+              {eyebrow}
+            </p>
+          ) : null}
+
+          <h2
+            style={{
+              fontSize: "24px",
+              color: "#f9fafb",
+              marginBottom: "8px",
+              letterSpacing: "-0.02em"
+            }}
+          >
+            {title}
+          </h2>
+
+          {subtitle ? (
+            <p
+              style={{
+                color: "#9ca3af",
+                lineHeight: "1.7",
+                maxWidth: "820px",
+                fontSize: "14px"
+              }}
+            >
+              {subtitle}
+            </p>
+          ) : null}
+        </div>
+
+        {rightSlot ? <div>{rightSlot}</div> : null}
+      </div>
+
+      <div style={{ position: "relative", zIndex: 1 }}>{children}</div>
+    </section>
+  )
+}
+
+function MetricCard({ label, value, helper, accent = "#d1d5db", tone = "neutral" }) {
+  const toneBackground =
+    tone === "success"
+      ? "linear-gradient(135deg, rgba(6, 78, 59, 0.45), rgba(17, 24, 39, 0.95))"
+      : tone === "danger"
+        ? "linear-gradient(135deg, rgba(127, 29, 29, 0.42), rgba(17, 24, 39, 0.95))"
+        : tone === "warning"
+          ? "linear-gradient(135deg, rgba(120, 53, 15, 0.42), rgba(17, 24, 39, 0.95))"
+          : tone === "info"
+            ? "linear-gradient(135deg, rgba(7, 89, 133, 0.42), rgba(17, 24, 39, 0.95))"
+            : "linear-gradient(135deg, rgba(17, 24, 39, 0.98), rgba(11, 18, 32, 0.98))"
+
+  return (
+    <div
+      style={{
+        background: toneBackground,
+        border: "1px solid rgba(55, 65, 81, 0.75)",
+        borderRadius: "20px",
+        padding: "18px",
+        minHeight: "126px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        boxShadow: "0 12px 30px rgba(0, 0, 0, 0.18)"
+      }}
+    >
+      <p style={{ color: "#9ca3af", fontSize: "13px", marginBottom: "14px" }}>{label}</p>
+
+      <div>
+        <p
+          style={{
+            color: accent,
+            fontSize: "28px",
+            fontWeight: "bold",
+            letterSpacing: "-0.02em",
+            marginBottom: helper ? "8px" : 0
+          }}
+        >
+          {value}
+        </p>
+
+        {helper ? (
+          <p style={{ color: "#9ca3af", fontSize: "13px", lineHeight: "1.6" }}>{helper}</p>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function InfoCard({ label, value, accent = "#d1d5db", helper }) {
+  return (
+    <div
+      style={{
+        backgroundColor: "#0b1220",
+        border: "1px solid #1f2937",
+        borderRadius: "16px",
+        padding: "16px"
+      }}
+    >
+      <p style={{ color: "#9ca3af", marginBottom: "8px", fontSize: "13px" }}>{label}</p>
+      <p style={{ color: accent, fontWeight: "bold", fontSize: "16px", marginBottom: helper ? "6px" : 0 }}>
+        {value}
+      </p>
+      {helper ? <p style={{ color: "#6b7280", fontSize: "12px", lineHeight: "1.5" }}>{helper}</p> : null}
+    </div>
+  )
+}
+
+function StatusPill({ label, color, backgroundColor }) {
+  return (
+    <div
+      style={{
+        backgroundColor: backgroundColor,
+        border: `1px solid ${color}`,
+        color,
+        padding: "8px 12px",
+        borderRadius: "999px",
+        fontSize: "12px",
+        fontWeight: "bold",
+        whiteSpace: "nowrap"
+      }}
+    >
+      {label}
+    </div>
+  )
+}
+
+function EmptyBox({ text }) {
+  return (
+    <div
+      style={{
+        backgroundColor: "#111827",
+        border: "1px dashed #374151",
+        borderRadius: "16px",
+        padding: "20px",
+        color: "#9ca3af"
+      }}
+    >
+      {text}
+    </div>
+  )
+}
 
 function App() {
   const [botStatus, setBotStatus] = useState("RUNNING")
@@ -112,6 +462,28 @@ function App() {
   const [lastUpdated, setLastUpdated] = useState("-")
   const [loadError, setLoadError] = useState("")
   const [backendStatus, setBackendStatus] = useState("Checking...")
+  const [backendHealth, setBackendHealth] = useState({
+    appName: "-",
+    version: "-",
+    environment: "-",
+    status: "-",
+    message: "-",
+    serverTime: "-",
+    startedAt: "-",
+    uptimeSeconds: 0,
+    uptime: "-",
+    botStatus: "-",
+    systemMode: "-",
+    activeSymbol: "-",
+    timeframe: "-",
+    mode: "-",
+    openPositions: 0,
+    historyRecords: 0,
+    riskStatus: "-",
+    dailyLossStatus: "-"
+  })
+  const [showOperationsConsole, setShowOperationsConsole] = useState(false)
+  const [showFullOperationsChain, setShowFullOperationsChain] = useState(false)
 
   const symbolOptions = ["OILCash", "XAUUSD", "USDJPYmicro"]
   const timeframeOptions = ["M5", "M15", "H1", "H4"]
@@ -205,9 +577,9 @@ function App() {
   const getRiskPresetNameFromValues = (riskSettings) => {
     const matchedPreset = riskPresetOptions.find((preset) => {
       return (
-        preset.maxDailyLoss === riskSettings.maxDailyLoss &&
-        preset.riskPerTrade === riskSettings.riskPerTrade &&
-        preset.maxOpenPositions === String(riskSettings.maxOpenPositions)
+        preset.maxDailyLoss === String(riskSettings.maxDailyLoss || "") &&
+        preset.riskPerTrade === String(riskSettings.riskPerTrade || "") &&
+        preset.maxOpenPositions === String(riskSettings.maxOpenPositions || "")
       )
     })
 
@@ -257,9 +629,7 @@ function App() {
         currentDailyLoss: nextAccountSettings.currentDailyLoss || ""
       })
 
-      setSelectedAccountScenario(
-        getAccountScenarioNameFromValues(nextAccountSettings)
-      )
+      setSelectedAccountScenario(getAccountScenarioNameFromValues(nextAccountSettings))
 
       const nextRiskSettings =
         dashboardData.riskSettings || {
@@ -322,10 +692,40 @@ function App() {
         }
       )
 
-      setBackendStatus(healthData.status === "ok" ? "Connected" : "Disconnected")
+      const nextBackendHealth =
+        dashboardData.backendHealth ||
+        healthData || {
+          appName: "-",
+          version: "-",
+          environment: "-",
+          status: "-",
+          message: "-",
+          serverTime: "-",
+          startedAt: "-",
+          uptimeSeconds: 0,
+          uptime: "-",
+          botStatus: dashboardData.botStatus || "-",
+          systemMode: dashboardData.systemMode || "-",
+          activeSymbol: nextSettings.symbol || "-",
+          timeframe: nextSettings.timeframe || "-",
+          mode: nextSettings.mode || "-",
+          openPositions: dashboardData.positions?.length || 0,
+          historyRecords: dashboardData.historyItems?.length || 0,
+          riskStatus: nextRiskControls.riskStatus || "-",
+          dailyLossStatus: nextRiskControls.dailyLossStatus || "-"
+        }
+
+      setBackendHealth(nextBackendHealth)
+      setBackendStatus(nextBackendHealth.status === "ok" ? "Connected" : "Disconnected")
     } catch (error) {
       setLoadError(error.message || "Unknown error")
       setBackendStatus("Disconnected")
+      setBackendHealth((prev) => ({
+        ...prev,
+        status: "error",
+        message: error.message || "Unknown error",
+        serverTime: new Date().toLocaleString()
+      }))
     } finally {
       setLoading(false)
     }
@@ -338,8 +738,8 @@ function App() {
   const systemMode = botStatus === "RUNNING" ? "ACTIVE" : "INACTIVE"
   const systemModeColor = botStatus === "RUNNING" ? "#86efac" : "#f87171"
   const visiblePositions = botStatus === "RUNNING" ? basePositions : []
-  const openPositionsCount = visiblePositions.length.toString()
-  const recentActivities = historyItems.slice(0, 3)
+  const openPositionsCount = String(visiblePositions.length)
+  const recentActivities = historyItems.slice(0, 4)
 
   const currentAccountScenario = getAccountScenarioNameFromValues({
     balance,
@@ -371,17 +771,7 @@ function App() {
 
     if (!keyword) return true
 
-    const combinedText = [
-      item.date,
-      item.area,
-      item.symbol,
-      item.type,
-      item.pnl,
-      item.detail
-    ]
-      .join(" ")
-      .toLowerCase()
-
+    const combinedText = `${item.date} ${item.area || ""} ${item.symbol || ""} ${item.type} ${item.pnl} ${item.detail}`.toLowerCase()
     return combinedText.includes(keyword)
   })
 
@@ -394,7 +784,7 @@ function App() {
     historyAreaFilter === "ALL"
       ? typeFilteredHistoryItems
       : typeFilteredHistoryItems.filter((item) => {
-        const itemArea = item.area || item.symbol || "-"
+        const itemArea = item.area || item.symbol
         return itemArea === historyAreaFilter
       })
 
@@ -402,12 +792,31 @@ function App() {
   const startActionsCount = historyItems.filter((item) => item.type === "START").length
   const stopActionsCount = historyItems.filter((item) => item.type === "STOP").length
 
-  const areaSummary = {
-    BOT: historyItems.filter((item) => (item.area || item.symbol) === "BOT").length,
-    ACCOUNT: historyItems.filter((item) => (item.area || item.symbol) === "ACCOUNT").length,
-    RISK: historyItems.filter((item) => (item.area || item.symbol) === "RISK").length,
-    SYSTEM: historyItems.filter((item) => (item.area || item.symbol) === "SYSTEM").length
-  }
+  const diagnosticsChecks = [
+    { label: "Backend Connected", passed: backendStatus === "Connected" },
+    { label: "Backend Health OK", passed: backendHealth.status === "ok" },
+    { label: "Bot State Known", passed: botStatus === "RUNNING" || botStatus === "STOPPED" },
+    { label: "Risk Data Loaded", passed: riskData.riskStatus !== "-" },
+    { label: "Daily Loss Guard Known", passed: riskData.dailyLossStatus !== "-" },
+    { label: "Settings Loaded", passed: settingsData.symbol !== "-" },
+    { label: "Chart Data Loaded", passed: chartData.length > 0 },
+    { label: "History Loaded", passed: Array.isArray(historyItems) },
+    { label: "Positions Loaded", passed: Array.isArray(basePositions) },
+    { label: "No Load Error", passed: !loadError }
+  ]
+
+  const diagnosticsPassedCount = diagnosticsChecks.filter((check) => check.passed).length
+  const diagnosticsScore =
+    diagnosticsChecks.length > 0
+      ? Math.round((diagnosticsPassedCount / diagnosticsChecks.length) * 100)
+      : 0
+
+  const reliabilityScore = Math.round(
+    diagnosticsScore * 0.55 +
+    (backendHealth.status === "ok" ? 15 : 0) +
+    ((backendHealth.riskStatus || riskData.riskStatus) === "OK" ? 15 : 0) +
+    ((backendHealth.dailyLossStatus || riskData.dailyLossStatus) === "OK" ? 15 : 0)
+  )
 
   const isBusy =
     loading ||
@@ -416,33 +825,12 @@ function App() {
     accountSettingsSaving ||
     riskSettingsSaving
 
-  const dashboardHealth =
-    backendStatus === "Connected" && !loadError && botStatus === "RUNNING"
-      ? "OPTIMAL"
-      : backendStatus !== "Connected" || loadError
-        ? "DISCONNECTED"
-        : "PAUSED"
-
-  const dashboardHealthColor =
-    dashboardHealth === "OPTIMAL"
-      ? "#86efac"
-      : dashboardHealth === "PAUSED"
-        ? "#facc15"
-        : "#f87171"
-
-  const dashboardHealthBackground =
-    dashboardHealth === "OPTIMAL"
-      ? "rgba(20, 83, 45, 0.42)"
-      : dashboardHealth === "PAUSED"
-        ? "rgba(113, 63, 18, 0.42)"
-        : "rgba(127, 29, 29, 0.42)"
-
   const cardInputStyle = {
     width: "100%",
     backgroundColor: "#0b1220",
     color: "white",
     border: "1px solid #1f2937",
-    borderRadius: "12px",
+    borderRadius: "14px",
     padding: "12px 14px",
     fontSize: "14px",
     outline: "none",
@@ -453,7 +841,8 @@ function App() {
     color: "#9ca3af",
     marginBottom: "8px",
     display: "block",
-    fontSize: "14px"
+    fontSize: "14px",
+    fontWeight: "bold"
   }
 
   const historyFilterButtonStyle = (type) => ({
@@ -463,7 +852,8 @@ function App() {
     padding: "10px 16px",
     borderRadius: "12px",
     fontWeight: "bold",
-    cursor: "pointer"
+    cursor: "pointer",
+    boxShadow: historyFilter === type ? "0 10px 24px rgba(132, 204, 22, 0.2)" : "none"
   })
 
   const historyAreaFilterButtonStyle = (area) => ({
@@ -473,46 +863,89 @@ function App() {
     padding: "10px 16px",
     borderRadius: "12px",
     fontWeight: "bold",
-    cursor: "pointer"
+    cursor: "pointer",
+    boxShadow: historyAreaFilter === area ? "0 10px 24px rgba(56, 189, 248, 0.2)" : "none"
   })
 
-  const actionButtonStyle = (backgroundColor, color = "white", disabled = false) => ({
-    backgroundColor,
-    color,
+  const baseButtonStyle = {
     border: "none",
-    padding: "12px 24px",
-    borderRadius: "12px",
-    fontWeight: "bold",
-    cursor: disabled ? "not-allowed" : "pointer",
-    opacity: disabled ? 0.7 : 1
-  })
-
-  const premiumButtonStyle = (background, color = "white", disabled = false) => ({
-    background,
-    color,
-    border: "1px solid rgba(255, 255, 255, 0.08)",
-    padding: "13px 18px",
+    padding: "12px 18px",
     borderRadius: "14px",
     fontWeight: "bold",
-    cursor: disabled ? "not-allowed" : "pointer",
-    opacity: disabled ? 0.7 : 1,
-    boxShadow: "0 16px 34px rgba(0, 0, 0, 0.24)"
-  })
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+    boxShadow: "0 12px 24px rgba(0, 0, 0, 0.18)"
+  }
 
-  const statusPillStyle = (color, backgroundColor) => ({
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "8px 12px",
-    borderRadius: "999px",
-    backgroundColor,
-    border: `1px solid ${color}`,
-    color,
-    fontWeight: "bold",
-    fontSize: "12px",
-    letterSpacing: "0.06em",
-    whiteSpace: "nowrap"
-  })
+  const startButtonStyle = {
+    ...baseButtonStyle,
+    backgroundColor: botStatus === "RUNNING" ? "#84cc16" : "#1f2937",
+    color: botStatus === "RUNNING" ? "black" : "white",
+    cursor: botStatus === "RUNNING" || actionLoading ? "not-allowed" : "pointer",
+    opacity: botStatus === "RUNNING" || actionLoading ? 0.7 : 1
+  }
+
+  const stopButtonStyle = {
+    ...baseButtonStyle,
+    backgroundColor: botStatus === "STOPPED" ? "#f87171" : "#1f2937",
+    color: "white",
+    cursor: botStatus === "STOPPED" || actionLoading ? "not-allowed" : "pointer",
+    opacity: botStatus === "STOPPED" || actionLoading ? 0.7 : 1
+  }
+
+  const emergencyButtonStyle = {
+    ...baseButtonStyle,
+    backgroundColor: "#dc2626",
+    color: "white",
+    cursor: actionLoading ? "not-allowed" : "pointer",
+    opacity: actionLoading ? 0.7 : 1
+  }
+
+  const refreshButtonStyle = {
+    ...baseButtonStyle,
+    backgroundColor: "#2563eb",
+    color: "white",
+    cursor: isBusy ? "not-allowed" : "pointer",
+    opacity: isBusy ? 0.7 : 1
+  }
+
+  const retryButtonStyle = {
+    ...baseButtonStyle,
+    backgroundColor: "#f59e0b",
+    color: "black",
+    cursor: loading ? "not-allowed" : "pointer",
+    opacity: loading ? 0.7 : 1
+  }
+
+  const saveButtonStyle = {
+    ...baseButtonStyle,
+    backgroundColor: "#84cc16",
+    color: "black",
+    cursor: settingsSaving ? "not-allowed" : "pointer",
+    opacity: settingsSaving ? 0.7 : 1
+  }
+
+  const accountSaveButtonStyle = {
+    ...baseButtonStyle,
+    backgroundColor: "#84cc16",
+    color: "black",
+    cursor: accountSettingsSaving ? "not-allowed" : "pointer",
+    opacity: accountSettingsSaving ? 0.7 : 1
+  }
+
+  const riskSaveButtonStyle = {
+    ...baseButtonStyle,
+    backgroundColor: "#84cc16",
+    color: "black",
+    cursor: riskSettingsSaving ? "not-allowed" : "pointer",
+    opacity: riskSettingsSaving ? 0.7 : 1
+  }
+
+  const resetButtonStyle = {
+    ...baseButtonStyle,
+    backgroundColor: "#374151",
+    color: "white"
+  }
 
   const handleStart = async () => {
     if (botStatus === "RUNNING" || actionLoading) return
@@ -618,9 +1051,7 @@ function App() {
 
     if (presetName === "Custom") return
 
-    const selectedPreset = riskPresetOptions.find(
-      (preset) => preset.name === presetName
-    )
+    const selectedPreset = riskPresetOptions.find((preset) => preset.name === presetName)
 
     if (!selectedPreset) return
 
@@ -665,7 +1096,6 @@ function App() {
       })
 
       await loadDashboardData()
-
       setSettingsSuccess("Bot settings saved successfully.")
     } catch (error) {
       setSettingsError(error.message || "Failed to save settings")
@@ -676,7 +1106,6 @@ function App() {
 
   const handleResetBotSettings = async () => {
     const confirmed = window.confirm("Are you sure you want to reset Bot Settings?")
-
     if (!confirmed) return
 
     try {
@@ -709,7 +1138,6 @@ function App() {
       })
 
       await loadDashboardData()
-
       setAccountSettingsSuccess("Account settings saved successfully.")
     } catch (error) {
       setAccountSettingsError(error.message || "Failed to save account settings")
@@ -719,10 +1147,7 @@ function App() {
   }
 
   const handleResetAccountSettings = async () => {
-    const confirmed = window.confirm(
-      "Are you sure you want to reset Account Settings?"
-    )
-
+    const confirmed = window.confirm("Are you sure you want to reset Account Settings?")
     if (!confirmed) return
 
     try {
@@ -755,7 +1180,6 @@ function App() {
       })
 
       await loadDashboardData()
-
       setRiskSettingsSuccess("Risk controls saved successfully.")
     } catch (error) {
       setRiskSettingsError(error.message || "Failed to save risk settings")
@@ -766,7 +1190,6 @@ function App() {
 
   const handleResetRiskSettings = async () => {
     const confirmed = window.confirm("Are you sure you want to reset Risk Controls?")
-
     if (!confirmed) return
 
     try {
@@ -786,1223 +1209,1433 @@ function App() {
     }
   }
 
-  const renderDashboardSectionCard = (title, subtitle, children) => {
-    return (
-      <section
-        style={{
-          background:
-            "linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(17, 24, 39, 0.96))",
-          border: "1px solid rgba(55, 65, 81, 0.75)",
-          borderRadius: "24px",
-          padding: "24px",
-          marginBottom: "28px",
-          boxShadow: "0 24px 60px rgba(0, 0, 0, 0.28)",
-          position: "relative",
-          overflow: "hidden"
-        }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            height: "3px",
-            background:
-              "linear-gradient(90deg, #84cc16, #38bdf8, rgba(132, 204, 22, 0.2))"
-          }}
-        />
+  const renderMessageBox = (type, title, message) => {
+    const config =
+      type === "error"
+        ? {
+          bg: "#450a0a",
+          border: "#991b1b",
+          title: "#fecaca",
+          text: "#fecaca"
+        }
+        : {
+          bg: "#052e16",
+          border: "#166534",
+          title: "#bbf7d0",
+          text: "#bbf7d0"
+        }
 
-        <div
-          style={{
-            position: "absolute",
-            top: "-60px",
-            right: "-60px",
-            width: "180px",
-            height: "180px",
-            borderRadius: "999px",
-            background: "rgba(132, 204, 22, 0.07)",
-            filter: "blur(4px)"
-          }}
-        />
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: "18px",
-            flexWrap: "wrap",
-            marginBottom: "20px",
-            position: "relative",
-            zIndex: 1
-          }}
-        >
-          <div>
-            <p
-              style={{
-                color: "#84cc16",
-                fontSize: "12px",
-                fontWeight: "bold",
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                marginBottom: "10px"
-              }}
-            >
-              Trading Command Center
-            </p>
-
-            <h2
-              style={{
-                fontSize: "26px",
-                marginBottom: "8px",
-                color: "#f9fafb",
-                letterSpacing: "-0.02em"
-              }}
-            >
-              {title}
-            </h2>
-
-            <p
-              style={{
-                color: "#9ca3af",
-                fontSize: "14px",
-                lineHeight: "1.7",
-                maxWidth: "760px"
-              }}
-            >
-              {subtitle}
-            </p>
-          </div>
-
-          <div
-            style={{
-              backgroundColor: "rgba(15, 23, 42, 0.92)",
-              border: "1px solid rgba(132, 204, 22, 0.35)",
-              color: "#bbf7d0",
-              padding: "9px 14px",
-              borderRadius: "999px",
-              fontSize: "12px",
-              fontWeight: "bold",
-              boxShadow: "0 10px 24px rgba(0, 0, 0, 0.2)"
-            }}
-          >
-            LIVE SYSTEM PANEL
-          </div>
-        </div>
-
-        <div style={{ position: "relative", zIndex: 1 }}>{children}</div>
-      </section>
-    )
-  }
-
-  const renderDashboardHeader = () => {
     return (
       <div
         style={{
-          background:
-            "linear-gradient(135deg, rgba(2, 6, 23, 0.98), rgba(15, 23, 42, 0.96))",
-          border: "1px solid rgba(55, 65, 81, 0.78)",
-          borderRadius: "30px",
-          padding: "30px",
-          marginBottom: "28px",
-          boxShadow: "0 30px 80px rgba(0, 0, 0, 0.34)",
-          position: "relative",
+          backgroundColor: config.bg,
+          border: `1px solid ${config.border}`,
+          borderRadius: "16px",
+          padding: "16px",
+          marginTop: "16px"
+        }}
+      >
+        <p style={{ color: config.title, fontWeight: "bold", marginBottom: "6px" }}>{title}</p>
+        <p style={{ color: config.text }}>{message}</p>
+      </div>
+    )
+  }
+
+  const renderRecentActivityList = () => {
+    if (recentActivities.length === 0) {
+      return <EmptyBox text="No recent activity." />
+    }
+
+    return (
+      <div
+        style={{
+          backgroundColor: "#111827",
+          border: "1px solid #1f2937",
+          borderRadius: "18px",
           overflow: "hidden"
         }}
       >
-        <div
-          style={{
-            position: "absolute",
-            top: "-120px",
-            right: "-120px",
-            width: "300px",
-            height: "300px",
-            borderRadius: "999px",
-            backgroundColor: "rgba(132, 204, 22, 0.12)",
-            filter: "blur(24px)"
-          }}
-        />
-
-        <div
-          style={{
-            position: "absolute",
-            bottom: "-140px",
-            left: "-120px",
-            width: "320px",
-            height: "320px",
-            borderRadius: "999px",
-            backgroundColor: "rgba(56, 189, 248, 0.1)",
-            filter: "blur(28px)"
-          }}
-        />
-
-        <div style={{ position: "relative", zIndex: 1 }}>
+        {recentActivities.map((item, index) => (
           <div
+            key={`${item.date}-${item.type}-${index}`}
             style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(420px, 1.35fr) minmax(320px, 0.75fr)",
-              gap: "24px",
-              alignItems: "stretch"
+              padding: "16px 18px",
+              borderBottom: index !== recentActivities.length - 1 ? "1px solid #1f2937" : "none",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: "16px",
+              flexWrap: "wrap"
             }}
           >
             <div>
-              <div
+              <p style={{ color: "#f9fafb", fontWeight: "bold", marginBottom: "6px" }}>
+                {item.type}
+              </p>
+              <p style={{ color: "#9ca3af", fontSize: "13px", marginBottom: "6px" }}>
+                {item.symbol} • {item.date}
+              </p>
+              <p style={{ color: "#9ca3af", fontSize: "13px", lineHeight: "1.6" }}>
+                {item.detail || "-"}
+              </p>
+            </div>
+
+            <p
+              style={{
+                color:
+                  item.type === "SELL" || item.type === "STOP" || item.type === "EMERGENCY"
+                    ? "#f87171"
+                    : "#86efac",
+                fontWeight: "bold"
+              }}
+            >
+              {item.pnl || "-"}
+            </p>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  const renderDashboardPage = () => {
+    return (
+      <>
+        <PageHeader
+          title="AI Trading Dashboard"
+          subtitle="แดชบอร์ดสไตล์ institutional สำหรับดูภาพรวมบัญชี สถานะบอท ความเสี่ยง AI signal กราฟราคา และการควบคุมระบบทั้งหมดในหน้าเดียว"
+        >
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <StatusPill
+              label={`BOT ${botStatus}`}
+              color={botStatus === "RUNNING" ? "#86efac" : "#f87171"}
+              backgroundColor={botStatus === "RUNNING" ? "rgba(20, 83, 45, 0.35)" : "rgba(127, 29, 29, 0.35)"}
+            />
+            <StatusPill
+              label={`SYSTEM ${systemMode}`}
+              color={systemModeColor}
+              backgroundColor={botStatus === "RUNNING" ? "rgba(20, 83, 45, 0.35)" : "rgba(127, 29, 29, 0.35)"}
+            />
+            <StatusPill
+              label={`BACKEND ${backendStatus}`}
+              color={backendStatus === "Connected" ? "#38bdf8" : "#f87171"}
+              backgroundColor={
+                backendStatus === "Connected" ? "rgba(8, 47, 73, 0.4)" : "rgba(127, 29, 29, 0.35)"
+              }
+            />
+          </div>
+        </PageHeader>
+
+        <div
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(17, 24, 39, 0.98), rgba(3, 7, 18, 0.98))",
+            border: "1px solid rgba(55, 65, 81, 0.8)",
+            borderRadius: "26px",
+            padding: "28px",
+            marginBottom: "24px",
+            boxShadow: "0 26px 60px rgba(0, 0, 0, 0.25)",
+            position: "relative",
+            overflow: "hidden"
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              right: "-80px",
+              top: "-60px",
+              width: "240px",
+              height: "240px",
+              borderRadius: "999px",
+              background: "rgba(56, 189, 248, 0.08)",
+              filter: "blur(18px)"
+            }}
+          />
+
+          <div
+            style={{
+              position: "relative",
+              zIndex: 1,
+              display: "grid",
+              gridTemplateColumns: "minmax(320px, 1.5fr) minmax(280px, 1fr)",
+              gap: "24px"
+            }}
+          >
+            <div>
+              <p
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  flexWrap: "wrap",
-                  marginBottom: "16px"
+                  color: "#84cc16",
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.15em",
+                  marginBottom: "12px"
                 }}
               >
-                <span style={statusPillStyle("#84cc16", "rgba(20, 83, 45, 0.42)")}>
-                  INSTITUTIONAL DASHBOARD
-                </span>
+                Command Center
+              </p>
 
-                <span style={statusPillStyle(dashboardHealthColor, dashboardHealthBackground)}>
-                  SYSTEM {dashboardHealth}
-                </span>
-
-                <span
-                  style={statusPillStyle(
-                    backendStatus === "Connected" ? "#38bdf8" : "#f87171",
-                    backendStatus === "Connected"
-                      ? "rgba(7, 89, 133, 0.42)"
-                      : "rgba(127, 29, 29, 0.42)"
-                  )}
-                >
-                  BACKEND {backendStatus.toUpperCase()}
-                </span>
-              </div>
-
-              <h1
+              <h2
                 style={{
-                  fontSize: "50px",
-                  marginBottom: "14px",
                   color: "#f9fafb",
-                  letterSpacing: "-0.055em",
-                  lineHeight: "1.02"
+                  fontSize: "32px",
+                  lineHeight: "1.2",
+                  letterSpacing: "-0.03em",
+                  marginBottom: "14px"
                 }}
               >
-                AI Trading Command Center
-              </h1>
+                ควบคุมการเทรด ดูความเสี่ยง และตัดสินใจได้จากหน้าเดียว
+              </h2>
 
               <p
                 style={{
                   color: "#9ca3af",
                   lineHeight: "1.8",
-                  fontSize: "15px",
-                  maxWidth: "860px",
+                  maxWidth: "760px",
                   marginBottom: "22px"
                 }}
               >
-                Real-time workspace for bot execution, risk permission, account state,
-                AI decision, quant metrics, market chart, activity log and open positions.
+                หน้า Dashboard นี้รวมทั้ง account overview, live execution control, AI decision snapshot,
+                price chart, risk engine, open positions และ recent activity เพื่อให้พี่เห็นทั้งระบบแบบครบภาพ
               </p>
+
+              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "20px" }}>
+                <button onClick={handleStart} disabled={botStatus === "RUNNING" || actionLoading} style={startButtonStyle}>
+                  Start Bot
+                </button>
+
+                <button onClick={handleStop} disabled={botStatus === "STOPPED" || actionLoading} style={stopButtonStyle}>
+                  Stop Bot
+                </button>
+
+                <button onClick={handleEmergencyStop} disabled={actionLoading} style={emergencyButtonStyle}>
+                  Emergency Stop
+                </button>
+
+                <button onClick={loadDashboardData} disabled={isBusy} style={refreshButtonStyle}>
+                  {isBusy ? "Refreshing..." : "Refresh Data"}
+                </button>
+              </div>
 
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(4, minmax(150px, 1fr))",
-                  gap: "14px",
-                  marginBottom: "22px"
+                  gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+                  gap: "14px"
                 }}
               >
-                <InfoBox label="Current Menu" value={selectedMenu} color="#84cc16" />
-                <InfoBox label="Last Updated" value={lastUpdated} color="#38bdf8" />
-                <InfoBox label="Active Symbol" value={settingsData.symbol} color="#f9fafb" />
-                <InfoBox label="Timeframe" value={settingsData.timeframe} color="#d1d5db" />
-              </div>
-
-              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-                <button
-                  onClick={handleStart}
-                  disabled={botStatus === "RUNNING" || actionLoading}
-                  style={premiumButtonStyle(
-                    botStatus === "RUNNING"
-                      ? "linear-gradient(135deg, #84cc16, #22c55e)"
-                      : "linear-gradient(135deg, #1f2937, #111827)",
-                    botStatus === "RUNNING" ? "black" : "white",
-                    botStatus === "RUNNING" || actionLoading
-                  )}
-                >
-                  Start Bot
-                </button>
-
-                <button
-                  onClick={handleStop}
-                  disabled={botStatus === "STOPPED" || actionLoading}
-                  style={premiumButtonStyle(
-                    botStatus === "STOPPED"
-                      ? "linear-gradient(135deg, #f87171, #dc2626)"
-                      : "linear-gradient(135deg, #1f2937, #111827)",
-                    "white",
-                    botStatus === "STOPPED" || actionLoading
-                  )}
-                >
-                  Stop Bot
-                </button>
-
-                <button
-                  onClick={handleEmergencyStop}
-                  disabled={actionLoading}
-                  style={premiumButtonStyle(
-                    "linear-gradient(135deg, #991b1b, #dc2626)",
-                    "white",
-                    actionLoading
-                  )}
-                >
-                  Emergency Stop
-                </button>
-
-                <button
-                  onClick={loadDashboardData}
-                  disabled={isBusy}
-                  style={premiumButtonStyle(
-                    "linear-gradient(135deg, #2563eb, #38bdf8)",
-                    "white",
-                    isBusy
-                  )}
-                >
-                  {isBusy ? "Refreshing..." : "Refresh Data"}
-                </button>
+                <InfoCard label="Last Action" value={lastAction} accent="#d1d5db" />
+                <InfoCard label="Last Updated" value={lastUpdated} accent="#38bdf8" />
+                <InfoCard label="Active Symbol" value={settingsData.symbol} accent="#f9fafb" />
+                <InfoCard label="Execution Mode" value={settingsData.mode} accent="#facc15" />
               </div>
             </div>
 
             <div
               style={{
-                background:
-                  "linear-gradient(135deg, rgba(11, 18, 32, 0.96), rgba(17, 24, 39, 0.96))",
-                border: "1px solid rgba(55, 65, 81, 0.82)",
-                borderRadius: "24px",
-                padding: "20px",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)"
+                backgroundColor: "rgba(11, 18, 32, 0.9)",
+                border: "1px solid rgba(55, 65, 81, 0.8)",
+                borderRadius: "22px",
+                padding: "22px",
+                boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.02)"
               }}
             >
-              <p
-                style={{
-                  color: "#9ca3af",
-                  fontSize: "12px",
-                  fontWeight: "bold",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.12em",
-                  marginBottom: "14px"
-                }}
-              >
-                Live System Snapshot
-              </p>
+              <p style={{ color: "#9ca3af", marginBottom: "16px", fontSize: "13px" }}>System Snapshot</p>
 
-              <div style={{ display: "grid", gap: "12px" }}>
-                <InfoBox
-                  label="Bot Status"
-                  value={botStatus}
-                  color={botStatus === "RUNNING" ? "#86efac" : "#f87171"}
+              <div style={{ display: "grid", gap: "14px" }}>
+                <InfoCard
+                  label="Quick Status"
+                  value={`${botStatus} / ${systemMode}`}
+                  accent={botStatus === "RUNNING" ? "#86efac" : "#f87171"}
                 />
-
-                <InfoBox
-                  label="System Mode"
-                  value={systemMode}
-                  color={systemModeColor}
-                />
-
-                <InfoBox
-                  label="Execution Mode"
-                  value={settingsData.mode}
-                  color="#facc15"
-                />
-
-                <InfoBox
-                  label="Balance"
-                  value={balance}
-                  color="#f9fafb"
-                />
-
-                <InfoBox
-                  label="Daily P&L"
-                  value={dailyPnl}
-                  color={dailyPnl.includes("-") ? "#f87171" : "#86efac"}
-                />
-
-                <InfoBox
-                  label="Open Positions"
-                  value={openPositionsCount}
-                  color={visiblePositions.length > 0 ? "#86efac" : "#facc15"}
-                />
-
-                <InfoBox
-                  label="Last Action"
-                  value={lastAction}
-                  color="#d1d5db"
-                />
-
-                <InfoBox
+                <InfoCard label="Backend" value={backendStatus} accent={backendStatus === "Connected" ? "#38bdf8" : "#f87171"} />
+                <InfoCard label="Timeframe" value={settingsData.timeframe} accent="#d1d5db" />
+                <InfoCard label="Open Positions" value={openPositionsCount} accent={visiblePositions.length > 0 ? "#86efac" : "#f87171"} />
+                <InfoCard
                   label="Data Status"
                   value={loadError ? "Error" : isBusy ? "Loading..." : "Ready"}
-                  color={loadError ? "#f87171" : isBusy ? "#facc15" : "#86efac"}
+                  accent={loadError ? "#f87171" : isBusy ? "#facc15" : "#86efac"}
                 />
               </div>
             </div>
           </div>
         </div>
-      </div>
-    )
-  }
 
-  const renderRecentActivity = () => {
-    return (
-      <div
-        style={{
-          background:
-            "linear-gradient(135deg, rgba(17, 24, 39, 0.98), rgba(11, 18, 32, 0.98))",
-          border: "1px solid rgba(55, 65, 81, 0.78)",
-          padding: "24px",
-          borderRadius: "22px",
-          marginBottom: "24px",
-          boxShadow: "0 18px 44px rgba(0, 0, 0, 0.22)"
-        }}
-      >
         <div
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "16px",
-            flexWrap: "wrap",
-            marginBottom: "20px"
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "18px",
+            marginBottom: "24px"
           }}
         >
-          <div>
-            <p
-              style={{
-                color: "#facc15",
-                fontSize: "12px",
-                fontWeight: "bold",
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                marginBottom: "8px"
-              }}
-            >
-              Activity Feed
-            </p>
-
-            <h3 style={{ color: "#f9fafb" }}>Recent Activity</h3>
-          </div>
-
-          <span style={statusPillStyle("#facc15", "rgba(113, 63, 18, 0.38)")}>
-            LATEST {recentActivities.length}
-          </span>
+          <MetricCard
+            label="Balance"
+            value={balance}
+            helper="Current account balance"
+            accent="#f9fafb"
+          />
+          <MetricCard
+            label="Daily P&L"
+            value={dailyPnl}
+            helper="Realized / simulated daily result"
+            accent={dailyPnl.includes("-") ? "#f87171" : "#86efac"}
+            tone={dailyPnl.includes("-") ? "danger" : "success"}
+          />
+          <MetricCard
+            label="Bot Status"
+            value={botStatus}
+            helper="Live bot execution state"
+            accent={botStatus === "RUNNING" ? "#86efac" : "#f87171"}
+            tone={botStatus === "RUNNING" ? "success" : "danger"}
+          />
+          <MetricCard
+            label="System Mode"
+            value={systemMode}
+            helper="Execution permission state"
+            accent={systemModeColor}
+            tone={botStatus === "RUNNING" ? "success" : "danger"}
+          />
+          <MetricCard
+            label="Open Positions"
+            value={openPositionsCount}
+            helper="Currently visible live positions"
+            accent={visiblePositions.length > 0 ? "#86efac" : "#facc15"}
+            tone={visiblePositions.length > 0 ? "info" : "warning"}
+          />
+          <MetricCard
+            label="AI Signal"
+            value={aiInsights.signal}
+            helper={`Confidence ${aiInsights.confidence}`}
+            accent={
+              aiInsights.signal === "BUY"
+                ? "#86efac"
+                : aiInsights.signal === "SELL"
+                  ? "#f87171"
+                  : "#facc15"
+            }
+            tone="info"
+          />
         </div>
 
-        {recentActivities.length === 0 ? (
-          <p style={{ color: "#9ca3af" }}>No recent activity.</p>
-        ) : (
-          recentActivities.map((item, index) => (
+        <SectionCard
+          eyebrow="Trading Intelligence"
+          title="AI Decision & Quant Snapshot"
+          subtitle="สรุปมุมมองของ AI และค่าสถิติหลักของระบบในรูปแบบที่อ่านง่ายขึ้น"
+          rightSlot={
+            <StatusPill
+              label={`CONFIDENCE ${aiInsights.confidence}`}
+              color="#38bdf8"
+              backgroundColor="rgba(8, 47, 73, 0.4)"
+            />
+          }
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(320px, 1fr) minmax(320px, 1fr)",
+              gap: "18px"
+            }}
+          >
             <div
-              key={`${item.date}-${item.type}-${index}`}
               style={{
-                borderTop: "1px solid #1f2937",
-                padding: "15px 0"
+                backgroundColor: "#0b1220",
+                border: "1px solid #1f2937",
+                borderRadius: "20px",
+                padding: "20px"
+              }}
+            >
+              <p style={{ color: "#9ca3af", marginBottom: "16px" }}>AI Decision Snapshot</p>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "14px", marginBottom: "14px" }}>
+                <InfoCard
+                  label="Signal"
+                  value={aiInsights.signal}
+                  accent={
+                    aiInsights.signal === "BUY"
+                      ? "#86efac"
+                      : aiInsights.signal === "SELL"
+                        ? "#f87171"
+                        : "#facc15"
+                  }
+                />
+                <InfoCard label="Confidence" value={aiInsights.confidence} accent="#38bdf8" />
+              </div>
+
+              <div
+                style={{
+                  backgroundColor: "#111827",
+                  border: "1px solid #1f2937",
+                  borderRadius: "16px",
+                  padding: "16px"
+                }}
+              >
+                <p style={{ color: "#9ca3af", marginBottom: "8px" }}>Reason</p>
+                <p style={{ color: "#d1d5db", lineHeight: "1.7" }}>{aiInsights.reason}</p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                backgroundColor: "#0b1220",
+                border: "1px solid #1f2937",
+                borderRadius: "20px",
+                padding: "20px"
+              }}
+            >
+              <p style={{ color: "#9ca3af", marginBottom: "16px" }}>System Performance Snapshot</p>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "14px" }}>
+                <InfoCard label="VaR" value={quantStats.var} accent="#f87171" />
+                <InfoCard label="Volatility" value={quantStats.volatility} accent="#d1d5db" />
+                <InfoCard label="Sharpe Ratio" value={quantStats.sharpeRatio} accent="#86efac" />
+                <InfoCard label="API Calls" value={aiUsage.apiCalls} accent="#38bdf8" />
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          eyebrow="Execution Profile"
+          title="Trading Configuration & Account Scenario"
+          subtitle="ดูค่าการเทรดปัจจุบันและสถานะบัญชีจำลองได้อย่างชัดเจนขึ้น"
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(320px, 1.1fr) minmax(320px, 1fr)",
+              gap: "18px"
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: "#0b1220",
+                border: "1px solid #1f2937",
+                borderRadius: "20px",
+                padding: "20px"
+              }}
+            >
+              <p style={{ color: "#9ca3af", marginBottom: "16px" }}>Current Trading Configuration</p>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "14px" }}>
+                <InfoCard label="Symbol" value={settingsData.symbol} accent="#f9fafb" />
+                <InfoCard label="Timeframe" value={settingsData.timeframe} accent="#d1d5db" />
+                <InfoCard label="Mode" value={settingsData.mode} accent="#facc15" />
+                <InfoCard
+                  label="Bot Status"
+                  value={botStatus}
+                  accent={botStatus === "RUNNING" ? "#86efac" : "#f87171"}
+                />
+              </div>
+            </div>
+
+            <div
+              style={{
+                backgroundColor: "#0b1220",
+                border: "1px solid #1f2937",
+                borderRadius: "20px",
+                padding: "20px"
               }}
             >
               <div
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
-                  gap: "16px",
-                  flexWrap: "wrap"
+                  gap: "14px",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  marginBottom: "16px"
                 }}
               >
-                <div>
-                  <p
-                    style={{
-                      color: "#d1d5db",
-                      fontWeight: "bold",
-                      marginBottom: "4px"
-                    }}
-                  >
-                    {item.type || "-"}
-                  </p>
+                <p style={{ color: "#9ca3af" }}>Account Scenario Badge</p>
 
-                  <p style={{ color: "#9ca3af", fontSize: "14px" }}>
-                    {item.area || item.symbol || "-"} • {item.date || "-"}
-                  </p>
+                <StatusPill
+                  label={currentAccountScenario}
+                  color={currentAccountScenarioColor}
+                  backgroundColor="rgba(17, 24, 39, 0.9)"
+                />
+              </div>
 
-                  <p style={{ color: "#9ca3af", fontSize: "13px", marginTop: "4px" }}>
-                    {item.detail || "-"}
-                  </p>
-                </div>
+              <div
+                style={{
+                  backgroundColor: "#111827",
+                  border: `1px solid ${currentAccountScenarioColor}`,
+                  borderRadius: "16px",
+                  padding: "16px",
+                  marginBottom: "14px"
+                }}
+              >
+                <p style={{ color: "#d1d5db", fontWeight: "bold", marginBottom: "8px" }}>
+                  {currentAccountScenario}
+                </p>
+                <p style={{ color: "#9ca3af", lineHeight: "1.7" }}>
+                  {currentAccountScenarioDescription}
+                </p>
+              </div>
 
-                <div
-                  style={{
-                    color:
-                      item.type === "SELL" ||
-                        item.type === "STOP" ||
-                        item.type === "EMERGENCY"
-                        ? "#f87171"
-                        : "#86efac",
-                    fontWeight: "bold"
-                  }}
-                >
-                  {item.pnl || "-"}
-                </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "14px" }}>
+                <InfoCard label="Balance" value={balance} accent="#f9fafb" />
+                <InfoCard label="Daily P&L" value={dailyPnl} accent={dailyPnl.includes("-") ? "#f87171" : "#86efac"} />
+                <InfoCard label="Current Daily Loss" value={riskData.currentDailyLoss} accent="#f87171" />
               </div>
             </div>
-          ))
-        )}
-      </div>
-    )
-  }
+          </div>
+        </SectionCard>
 
-  const renderCurrentTradingConfiguration = () => {
-    return (
-      <div style={panelStyle}>
-        <h3 style={{ marginBottom: "20px" }}>Current Trading Configuration</h3>
-
-        <div style={grid4Style}>
-          <InfoBox label="Symbol" value={settingsData.symbol} />
-          <InfoBox label="Timeframe" value={settingsData.timeframe} />
-          <InfoBox label="Mode" value={settingsData.mode} />
-          <InfoBox
-            label="Bot Status"
-            value={botStatus}
-            color={botStatus === "RUNNING" ? "#86efac" : "#f87171"}
-          />
-        </div>
-      </div>
-    )
-  }
-
-  const renderAiDecisionSnapshot = () => {
-    return (
-      <div style={panelStyle}>
-        <h3 style={{ marginBottom: "20px" }}>AI Decision Snapshot</h3>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr 2fr",
-            gap: "16px"
-          }}
-        >
-          <InfoBox label="Signal" value={aiInsights.signal} />
-          <InfoBox label="Confidence" value={aiInsights.confidence} />
-          <InfoBox label="Reason" value={aiInsights.reason} />
-        </div>
-      </div>
-    )
-  }
-
-  const renderAccountScenarioBadge = () => {
-    return (
-      <div style={panelStyle}>
-        <h3 style={{ marginBottom: "20px" }}>Account Scenario Badge</h3>
-
-        <div
-          style={{
-            backgroundColor: "#0b1220",
-            border: `1px solid ${currentAccountScenarioColor}`,
-            borderRadius: "14px",
-            padding: "16px",
-            marginBottom: "16px"
-          }}
+        <SectionCard
+          eyebrow="Risk & Market"
+          title="Price Chart & Risk Engine"
+          subtitle="กราฟราคาและแผง risk control วางคู่กัน ทำให้มอง market context และ risk state ได้ใน section เดียว"
         >
           <div
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: "16px",
-              flexWrap: "wrap",
-              alignItems: "center",
-              marginBottom: "8px"
-            }}
-          >
-            <p style={{ color: "#9ca3af" }}>Current Account Scenario</p>
-
-            <p
-              style={{
-                color: currentAccountScenarioColor,
-                fontWeight: "bold",
-                fontSize: "18px"
-              }}
-            >
-              {currentAccountScenario}
-            </p>
-          </div>
-
-          <p style={{ color: "#d1d5db", fontWeight: "bold" }}>
-            {currentAccountScenarioDescription}
-          </p>
-        </div>
-
-        <div style={grid3Style}>
-          <InfoBox label="Balance" value={balance} />
-          <InfoBox
-            label="Daily P&L"
-            value={dailyPnl}
-            color={dailyPnl.includes("-") ? "#f87171" : "#86efac"}
-          />
-          <InfoBox
-            label="Current Daily Loss"
-            value={riskData.currentDailyLoss}
-            color="#f87171"
-          />
-        </div>
-      </div>
-    )
-  }
-
-  const renderSystemPerformanceSnapshot = () => {
-    return (
-      <div style={panelStyle}>
-        <h3 style={{ marginBottom: "20px" }}>System Performance Snapshot</h3>
-
-        <div style={grid4Style}>
-          <InfoBox label="VaR" value={quantStats.var} color="#f87171" />
-          <InfoBox label="Volatility" value={quantStats.volatility} />
-          <InfoBox label="Sharpe Ratio" value={quantStats.sharpeRatio} color="#86efac" />
-          <InfoBox label="API Calls" value={aiUsage.apiCalls} />
-        </div>
-      </div>
-    )
-  }
-
-  const renderDashboard = () => {
-    return (
-      <>
-        {renderDashboardHeader()}
-
-        {renderDashboardSectionCard(
-          "1. Account & Bot Overview",
-          "ภาพรวมบัญชี สถานะบอท จำนวนออเดอร์ และสถานะระบบหลัก",
-          <div
-            style={{
               display: "grid",
-              gridTemplateColumns: "repeat(5, minmax(180px, 1fr))",
-              gap: "20px"
-            }}
-          >
-            <StatCard title="Balance" value={balance} color="white" />
-            <StatCard
-              title="Daily P&L"
-              value={dailyPnl}
-              color={dailyPnl.includes("-") ? "#f87171" : "#86efac"}
-            />
-            <StatCard
-              title="Bot Status"
-              value={botStatus}
-              color={botStatus === "RUNNING" ? "#86efac" : "#f87171"}
-            />
-            <StatCard title="System Mode" value={systemMode} color={systemModeColor} />
-            <StatCard
-              title="Open Positions"
-              value={openPositionsCount}
-              color={visiblePositions.length > 0 ? "#86efac" : "#f87171"}
-            />
-          </div>
-        )}
-
-        {renderDashboardSectionCard(
-          "2. Executive Overview",
-          "รวม configuration, account scenario, AI decision และ system performance ไว้ใน grid เดียวแบบ command desk",
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(340px, 1fr) minmax(340px, 1fr)",
-              gap: "20px",
+              gridTemplateColumns: "minmax(420px, 1.5fr) minmax(300px, 1fr)",
+              gap: "18px",
               alignItems: "start"
-            }}
-          >
-            <div>
-              {renderCurrentTradingConfiguration()}
-              {renderAccountScenarioBadge()}
-            </div>
-
-            <div>
-              {renderAiDecisionSnapshot()}
-              {renderSystemPerformanceSnapshot()}
-            </div>
-          </div>
-        )}
-
-        {renderDashboardSectionCard(
-          "3. Risk Engine",
-          "ระบบประเมินความเสี่ยงก่อนอนุญาตให้เปิดออเดอร์ใหม่",
-          <RiskPanel riskData={riskData} />
-        )}
-
-        {renderDashboardSectionCard(
-          "4. Chart & Market Data",
-          "กราฟราคาและข้อมูลราคาจำลองจาก backend",
-          <PriceChart
-            data={chartData}
-            symbol={settingsData.symbol}
-            timeframe={settingsData.timeframe}
-          />
-        )}
-
-        {renderDashboardSectionCard(
-          "5. Activity & Positions",
-          "ประวัติล่าสุดและรายการออเดอร์ที่เปิดอยู่",
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(340px, 0.8fr) minmax(520px, 1.35fr)",
-              gap: "20px",
-              alignItems: "start"
-            }}
-          >
-            <div>{renderRecentActivity()}</div>
-
-            <div>
-              <OpenPositionsTable positions={visiblePositions} />
-            </div>
-          </div>
-        )}
-
-        {renderDashboardSectionCard(
-          "6. Trade Control",
-          "ปุ่มควบคุมบอท เริ่ม หยุด ฉุกเฉิน และรีเฟรชข้อมูล",
-          <div
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(11, 18, 32, 0.96), rgba(17, 24, 39, 0.96))",
-              border: "1px solid rgba(55, 65, 81, 0.78)",
-              borderRadius: "22px",
-              padding: "22px"
             }}
           >
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(4, minmax(160px, 1fr))",
-                gap: "14px",
-                marginBottom: "18px"
+                backgroundColor: "#0b1220",
+                border: "1px solid #1f2937",
+                borderRadius: "20px",
+                padding: "18px"
               }}
             >
-              <button
-                onClick={handleStart}
-                disabled={botStatus === "RUNNING" || actionLoading}
-                style={premiumButtonStyle(
-                  botStatus === "RUNNING"
-                    ? "linear-gradient(135deg, #84cc16, #22c55e)"
-                    : "linear-gradient(135deg, #1f2937, #111827)",
-                  botStatus === "RUNNING" ? "black" : "white",
-                  botStatus === "RUNNING" || actionLoading
-                )}
-              >
-                Start
-              </button>
-
-              <button
-                onClick={handleStop}
-                disabled={botStatus === "STOPPED" || actionLoading}
-                style={premiumButtonStyle(
-                  botStatus === "STOPPED"
-                    ? "linear-gradient(135deg, #f87171, #dc2626)"
-                    : "linear-gradient(135deg, #1f2937, #111827)",
-                  "white",
-                  botStatus === "STOPPED" || actionLoading
-                )}
-              >
-                Stop
-              </button>
-
-              <button
-                onClick={handleEmergencyStop}
-                disabled={actionLoading}
-                style={premiumButtonStyle(
-                  "linear-gradient(135deg, #991b1b, #dc2626)",
-                  "white",
-                  actionLoading
-                )}
-              >
-                Emergency Stop
-              </button>
-
-              <button
-                onClick={loadDashboardData}
-                disabled={isBusy}
-                style={premiumButtonStyle(
-                  "linear-gradient(135deg, #2563eb, #38bdf8)",
-                  "white",
-                  isBusy
-                )}
-              >
-                {isBusy ? "Refreshing..." : "Refresh Data"}
-              </button>
+              <PriceChart
+                data={chartData}
+                symbol={settingsData.symbol}
+                timeframe={settingsData.timeframe}
+              />
             </div>
 
-            <div style={grid4Style}>
-              <InfoBox label="Bot" value={botStatus} color={botStatus === "RUNNING" ? "#86efac" : "#f87171"} />
-              <InfoBox label="System" value={systemMode} color={systemModeColor} />
-              <InfoBox label="Backend" value={backendStatus} color={backendStatus === "Connected" ? "#38bdf8" : "#f87171"} />
-              <InfoBox label="Last Action" value={lastAction} color="#d1d5db" />
+            <div
+              style={{
+                backgroundColor: "#0b1220",
+                border: "1px solid #1f2937",
+                borderRadius: "20px",
+                padding: "18px"
+              }}
+            >
+              <RiskPanel riskData={riskData} />
             </div>
           </div>
-        )}
+        </SectionCard>
+
+        <SectionCard
+          eyebrow="Activity Feed"
+          title="Recent Activity & Open Positions"
+          subtitle="ดู action ล่าสุดของระบบคู่กับรายการออเดอร์ที่เปิดอยู่ เพื่อเชื่อมโยงเหตุการณ์ล่าสุดกับสถานะ position"
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(320px, 0.9fr) minmax(420px, 1.4fr)",
+              gap: "18px",
+              alignItems: "start"
+            }}
+          >
+            <div>
+              <p style={{ color: "#9ca3af", marginBottom: "12px" }}>Recent Activity</p>
+              {renderRecentActivityList()}
+            </div>
+
+            <div
+              style={{
+                backgroundColor: "#0b1220",
+                border: "1px solid #1f2937",
+                borderRadius: "20px",
+                padding: "18px"
+              }}
+            >
+              <OpenPositionsTable positions={visiblePositions} />
+            </div>
+          </div>
+        </SectionCard>
       </>
     )
   }
 
-  const renderHistory = () => {
+  const renderBacktestPage = () => {
     return (
       <>
-        <h1 style={{ fontSize: "42px", marginBottom: "10px" }}>History</h1>
-
-        <p style={{ color: "#84cc16", marginBottom: "30px", fontWeight: "bold" }}>
-          Current Menu: {selectedMenu}
-        </p>
-
-        <div style={grid4Style}>
-          <StatCard title="Total Records" value={String(totalHistoryRecords)} color="white" />
-          <StatCard title="BOT Area" value={String(areaSummary.BOT)} color="#38bdf8" />
-          <StatCard title="ACCOUNT Area" value={String(areaSummary.ACCOUNT)} color="#86efac" />
-          <StatCard title="RISK Area" value={String(areaSummary.RISK)} color="#facc15" />
-        </div>
-
-        <div style={{ height: "20px" }} />
-
-        <div style={grid3Style}>
-          <StatCard title="Start Actions" value={String(startActionsCount)} color="#86efac" />
-          <StatCard title="Stop Actions" value={String(stopActionsCount)} color="#f87171" />
-          <StatCard title="SYSTEM Area" value={String(areaSummary.SYSTEM)} color="#d1d5db" />
-        </div>
+        <PageHeader
+          title="Backtest"
+          subtitle="หน้าสรุปผล backtest แบบกระชับ ดูผลลัพธ์หลักของระบบเพื่อประเมินคุณภาพเบื้องต้น"
+        >
+          <StatusPill label={`MENU ${selectedMenu}`} color="#84cc16" backgroundColor="rgba(20, 83, 45, 0.35)" />
+        </PageHeader>
 
         <div
           style={{
-            backgroundColor: "#111827",
-            padding: "20px",
-            borderRadius: "16px",
-            marginTop: "24px",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "18px",
             marginBottom: "24px"
           }}
         >
-          <h3 style={{ marginBottom: "16px" }}>History Filter</h3>
+          <MetricCard label="Total Trades" value={backtestData.totalTrades} accent="#f9fafb" />
+          <MetricCard label="Win Rate" value={backtestData.winRate} accent="#86efac" tone="success" />
+          <MetricCard label="Net Profit" value={backtestData.netProfit} accent="#38bdf8" tone="info" />
+        </div>
 
-          <div style={{ marginBottom: "16px" }}>
-            <input
-              type="text"
-              value={historySearch}
-              onChange={(event) => setHistorySearch(event.target.value)}
-              placeholder="ค้นหาจาก area, type, symbol, detail, date, pnl..."
-              style={cardInputStyle}
+        <SectionCard
+          eyebrow="Backtest Summary"
+          title="Strategy Backtest Overview"
+          subtitle="สรุปผลสำคัญของระบบย้อนหลังในรูปแบบการ์ดและแผงสรุป"
+        >
+          <div
+            style={{
+              backgroundColor: "#0b1220",
+              border: "1px solid #1f2937",
+              borderRadius: "20px",
+              padding: "20px"
+            }}
+          >
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "14px" }}>
+              <InfoCard label="Total Trades" value={backtestData.totalTrades} accent="#f9fafb" />
+              <InfoCard label="Win Rate" value={backtestData.winRate} accent="#86efac" />
+              <InfoCard label="Net Profit" value={backtestData.netProfit} accent="#38bdf8" />
+            </div>
+          </div>
+        </SectionCard>
+      </>
+    )
+  }
+
+  const renderHistoryPage = () => {
+    return (
+      <>
+        <PageHeader
+          title="History"
+          subtitle="ค้นหา กรอง และส่งออกประวัติการทำงานของบอทและกิจกรรมต่าง ๆ ได้จากหน้าเดียว"
+        >
+          <StatusPill label={`MENU ${selectedMenu}`} color="#84cc16" backgroundColor="rgba(20, 83, 45, 0.35)" />
+        </PageHeader>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "18px",
+            marginBottom: "24px"
+          }}
+        >
+          <MetricCard label="Total Records" value={String(totalHistoryRecords)} accent="#f9fafb" />
+          <MetricCard label="Start Actions" value={String(startActionsCount)} accent="#86efac" tone="success" />
+          <MetricCard label="Stop Actions" value={String(stopActionsCount)} accent="#f87171" tone="danger" />
+        </div>
+
+        <SectionCard
+          eyebrow="History Filters"
+          title="Filter & Search"
+          subtitle="ค้นหาจาก keyword แล้วกรองต่อด้วย type และ area เพื่อดูประวัติได้เร็วขึ้น"
+        >
+          <div
+            style={{
+              backgroundColor: "#0b1220",
+              border: "1px solid #1f2937",
+              borderRadius: "20px",
+              padding: "20px"
+            }}
+          >
+            <div style={{ marginBottom: "18px" }}>
+              <label style={labelStyle}>Search</label>
+              <input
+                type="text"
+                value={historySearch}
+                onChange={(event) => setHistorySearch(event.target.value)}
+                placeholder="ค้นหาจาก type, symbol, detail, date, pnl..."
+                style={cardInputStyle}
+              />
+            </div>
+
+            <div style={{ marginBottom: "18px" }}>
+              <p style={{ color: "#9ca3af", marginBottom: "10px", fontWeight: "bold" }}>Filter by Type</p>
+
+              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                <button onClick={() => setHistoryFilter("ALL")} style={historyFilterButtonStyle("ALL")}>ALL</button>
+                <button onClick={() => setHistoryFilter("START")} style={historyFilterButtonStyle("START")}>START</button>
+                <button onClick={() => setHistoryFilter("STOP")} style={historyFilterButtonStyle("STOP")}>STOP</button>
+                <button onClick={() => setHistoryFilter("EMERGENCY")} style={historyFilterButtonStyle("EMERGENCY")}>EMERGENCY</button>
+                <button onClick={() => setHistoryFilter("SETTINGS")} style={historyFilterButtonStyle("SETTINGS")}>SETTINGS</button>
+              </div>
+            </div>
+
+            <div>
+              <p style={{ color: "#9ca3af", marginBottom: "10px", fontWeight: "bold" }}>Filter by Area</p>
+
+              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                <button onClick={() => setHistoryAreaFilter("ALL")} style={historyAreaFilterButtonStyle("ALL")}>ALL AREAS</button>
+                <button onClick={() => setHistoryAreaFilter("BOT")} style={historyAreaFilterButtonStyle("BOT")}>BOT</button>
+                <button onClick={() => setHistoryAreaFilter("ACCOUNT")} style={historyAreaFilterButtonStyle("ACCOUNT")}>ACCOUNT</button>
+                <button onClick={() => setHistoryAreaFilter("RISK")} style={historyAreaFilterButtonStyle("RISK")}>RISK</button>
+                <button onClick={() => setHistoryAreaFilter("SYSTEM")} style={historyAreaFilterButtonStyle("SYSTEM")}>SYSTEM</button>
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          eyebrow="Activity Log"
+          title="Trade & Activity History"
+          subtitle="แสดงประวัติทั้งหมดตาม filter ที่เลือก พร้อมปุ่ม export CSV และ clear history ภายใน component เดิม"
+        >
+          <HistoryTable historyItems={filteredHistoryItems} />
+        </SectionCard>
+      </>
+    )
+  }
+
+  const renderAiInsightsPage = () => {
+    return (
+      <>
+        <PageHeader
+          title="AI Insights"
+          subtitle="สรุปการตัดสินใจล่าสุดของ AI พร้อมเหตุผล, confidence, risk bias และ action ที่ควรทำต่อ"
+        >
+          <StatusPill label={`MENU ${selectedMenu}`} color="#84cc16" backgroundColor="rgba(20, 83, 45, 0.35)" />
+        </PageHeader>
+
+        <AiInsightsPanel
+          aiInsights={aiInsights}
+          backendHealth={backendHealth}
+          riskData={riskData}
+          botStatus={botStatus}
+          selectedMenu={selectedMenu}
+        />
+      </>
+    )
+  }
+
+  const renderAiUsagePage = () => {
+    return (
+      <>
+        <PageHeader
+          title="AI Usage"
+          subtitle="ภาพรวมการใช้งาน AI, จำนวน API calls, token usage, estimated cost, budget และ efficiency"
+        >
+          <StatusPill label={`MENU ${selectedMenu}`} color="#84cc16" backgroundColor="rgba(20, 83, 45, 0.35)" />
+        </PageHeader>
+
+        <AiUsagePanel
+          aiUsage={aiUsage}
+          selectedMenu={selectedMenu}
+        />
+      </>
+    )
+  }
+
+  const renderQuantPage = () => {
+    return (
+      <>
+        <PageHeader
+          title="Quant"
+          subtitle="วิเคราะห์สุขภาพระบบเชิง Quant ผ่าน VaR, volatility, Sharpe, drawdown, position usage และ risk regime"
+        >
+          <StatusPill label={`MENU ${selectedMenu}`} color="#84cc16" backgroundColor="rgba(20, 83, 45, 0.35)" />
+        </PageHeader>
+
+        <QuantAnalyticsPanel
+          quantStats={quantStats}
+          backtest={backtestData}
+          riskData={riskData}
+          positions={visiblePositions}
+          selectedMenu={selectedMenu}
+        />
+      </>
+    )
+  }
+
+  const renderSettingsPage = () => {
+    return (
+      <>
+        <PageHeader
+          title="Settings"
+          subtitle="ปรับแต่ง bot settings, account summary และ risk controls ได้ในหน้าเดียว พร้อม preset และ reset"
+        >
+          <StatusPill label={`MENU ${selectedMenu}`} color="#84cc16" backgroundColor="rgba(20, 83, 45, 0.35)" />
+        </PageHeader>
+
+        <SectionCard
+          eyebrow="Bot Configuration"
+          title="Bot Settings"
+          subtitle="กำหนด symbol, timeframe และ execution mode ของระบบ"
+        >
+          <div
+            style={{
+              backgroundColor: "#0b1220",
+              border: "1px solid #1f2937",
+              borderRadius: "20px",
+              padding: "20px"
+            }}
+          >
+            <div style={{ marginBottom: "16px" }}>
+              <label style={labelStyle}>Symbol</label>
+              <select
+                value={settingsForm.symbol}
+                onChange={(event) => handleSettingsInputChange("symbol", event.target.value)}
+                style={cardInputStyle}
+              >
+                <option value="">Select Symbol</option>
+                {symbolOptions.map((symbol) => (
+                  <option key={symbol} value={symbol}>
+                    {symbol}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label style={labelStyle}>Timeframe</label>
+              <select
+                value={settingsForm.timeframe}
+                onChange={(event) => handleSettingsInputChange("timeframe", event.target.value)}
+                style={cardInputStyle}
+              >
+                <option value="">Select Timeframe</option>
+                {timeframeOptions.map((timeframe) => (
+                  <option key={timeframe} value={timeframe}>
+                    {timeframe}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <label style={labelStyle}>Mode</label>
+              <select
+                value={settingsForm.mode}
+                onChange={(event) => handleSettingsInputChange("mode", event.target.value)}
+                style={cardInputStyle}
+              >
+                <option value="">Select Mode</option>
+                {modeOptions.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+              <button onClick={handleSaveSettings} disabled={settingsSaving} style={saveButtonStyle}>
+                {settingsSaving ? "Saving..." : "Save Settings"}
+              </button>
+
+              <button onClick={handleResetBotSettings} disabled={settingsSaving} style={resetButtonStyle}>
+                Reset Bot Settings
+              </button>
+            </div>
+
+            {settingsError ? renderMessageBox("error", "Bot Settings Error", settingsError) : null}
+            {settingsSuccess ? renderMessageBox("success", "Success", settingsSuccess) : null}
+
+            <div
+              style={{
+                marginTop: "18px",
+                backgroundColor: "#111827",
+                border: "1px solid #1f2937",
+                borderRadius: "16px",
+                padding: "16px"
+              }}
+            >
+              <p style={{ color: "#9ca3af", marginBottom: "10px" }}>Saved Values</p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "14px" }}>
+                <InfoCard label="Symbol" value={settingsData.symbol} accent="#f9fafb" />
+                <InfoCard label="Timeframe" value={settingsData.timeframe} accent="#d1d5db" />
+                <InfoCard label="Mode" value={settingsData.mode} accent="#facc15" />
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          eyebrow="Account Summary"
+          title="Account Settings"
+          subtitle="ตั้งค่า balance, daily P&L และ current daily loss พร้อมเลือก scenario สำเร็จรูป"
+        >
+          <div
+            style={{
+              backgroundColor: "#0b1220",
+              border: "1px solid #1f2937",
+              borderRadius: "20px",
+              padding: "20px"
+            }}
+          >
+            <div style={{ marginBottom: "16px" }}>
+              <label style={labelStyle}>Account Scenario</label>
+              <select
+                value={selectedAccountScenario}
+                onChange={(event) => handleAccountScenarioChange(event.target.value)}
+                style={cardInputStyle}
+              >
+                <option value="Custom">Custom</option>
+                {accountScenarioOptions.map((scenario) => (
+                  <option key={scenario.name} value={scenario.name}>
+                    {scenario.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div
+              style={{
+                backgroundColor: "#111827",
+                border: "1px solid #1f2937",
+                borderRadius: "16px",
+                padding: "16px",
+                marginBottom: "18px"
+              }}
+            >
+              <p style={{ color: "#9ca3af", marginBottom: "12px" }}>Account Scenario Guide</p>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "14px"
+                }}
+              >
+                {accountScenarioOptions.map((scenario) => (
+                  <div
+                    key={scenario.name}
+                    style={{
+                      backgroundColor: selectedAccountScenario === scenario.name ? "#1a2e05" : "#0b1220",
+                      border: selectedAccountScenario === scenario.name ? "1px solid #84cc16" : "1px solid #1f2937",
+                      borderRadius: "14px",
+                      padding: "14px"
+                    }}
+                  >
+                    <p style={{ color: "#f9fafb", fontWeight: "bold", marginBottom: "8px" }}>
+                      {scenario.name}
+                    </p>
+                    <p style={{ color: "#9ca3af", fontSize: "13px", marginBottom: "6px" }}>
+                      Balance: {scenario.balance}
+                    </p>
+                    <p style={{ color: "#9ca3af", fontSize: "13px", marginBottom: "6px" }}>
+                      Daily P&L: {scenario.dailyPnl}
+                    </p>
+                    <p style={{ color: "#9ca3af", fontSize: "13px", marginBottom: "8px" }}>
+                      Daily Loss: {scenario.currentDailyLoss}
+                    </p>
+                    <p style={{ color: "#d1d5db", fontSize: "12px", lineHeight: "1.6" }}>
+                      {scenario.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label style={labelStyle}>Balance</label>
+              <input
+                type="text"
+                value={accountSettingsForm.balance}
+                onChange={(event) => handleAccountSettingsInputChange("balance", event.target.value)}
+                placeholder="$33.85"
+                style={cardInputStyle}
+              />
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label style={labelStyle}>Daily P&L</label>
+              <input
+                type="text"
+                value={accountSettingsForm.dailyPnl}
+                onChange={(event) => handleAccountSettingsInputChange("dailyPnl", event.target.value)}
+                placeholder="+2.95 or -5.00"
+                style={cardInputStyle}
+              />
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <label style={labelStyle}>Current Daily Loss</label>
+              <input
+                type="text"
+                value={accountSettingsForm.currentDailyLoss}
+                onChange={(event) => handleAccountSettingsInputChange("currentDailyLoss", event.target.value)}
+                placeholder="0 or 2.50"
+                style={cardInputStyle}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+              <button
+                onClick={handleSaveAccountSettings}
+                disabled={accountSettingsSaving}
+                style={accountSaveButtonStyle}
+              >
+                {accountSettingsSaving ? "Saving..." : "Save Account Settings"}
+              </button>
+
+              <button
+                onClick={handleResetAccountSettings}
+                disabled={accountSettingsSaving}
+                style={resetButtonStyle}
+              >
+                Reset Account Settings
+              </button>
+            </div>
+
+            {accountSettingsError ? renderMessageBox("error", "Account Settings Error", accountSettingsError) : null}
+            {accountSettingsSuccess ? renderMessageBox("success", "Success", accountSettingsSuccess) : null}
+
+            <div
+              style={{
+                marginTop: "18px",
+                backgroundColor: "#111827",
+                border: "1px solid #1f2937",
+                borderRadius: "16px",
+                padding: "16px"
+              }}
+            >
+              <p style={{ color: "#9ca3af", marginBottom: "10px" }}>Current Account Summary</p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "14px" }}>
+                <InfoCard label="Balance" value={balance} accent="#f9fafb" />
+                <InfoCard label="Daily P&L" value={dailyPnl} accent={dailyPnl.includes("-") ? "#f87171" : "#86efac"} />
+                <InfoCard label="Current Daily Loss" value={riskData.currentDailyLoss} accent="#f87171" />
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          eyebrow="Risk Management"
+          title="Risk Controls"
+          subtitle="กำหนด max daily loss, risk per trade และจำนวน position สูงสุด พร้อม preset สำเร็จรูป"
+        >
+          <div
+            style={{
+              backgroundColor: "#0b1220",
+              border: "1px solid #1f2937",
+              borderRadius: "20px",
+              padding: "20px"
+            }}
+          >
+            <div style={{ marginBottom: "16px" }}>
+              <label style={labelStyle}>Risk Preset</label>
+              <select
+                value={selectedRiskPreset}
+                onChange={(event) => handleRiskPresetChange(event.target.value)}
+                style={cardInputStyle}
+              >
+                <option value="Custom">Custom</option>
+                {riskPresetOptions.map((preset) => (
+                  <option key={preset.name} value={preset.name}>
+                    {preset.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div
+              style={{
+                backgroundColor: "#111827",
+                border: "1px solid #1f2937",
+                borderRadius: "16px",
+                padding: "16px",
+                marginBottom: "18px"
+              }}
+            >
+              <p style={{ color: "#9ca3af", marginBottom: "12px" }}>Risk Preset Guide</p>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "14px"
+                }}
+              >
+                {riskPresetOptions.map((preset) => (
+                  <div
+                    key={preset.name}
+                    style={{
+                      backgroundColor: selectedRiskPreset === preset.name ? "#1a2e05" : "#0b1220",
+                      border: selectedRiskPreset === preset.name ? "1px solid #84cc16" : "1px solid #1f2937",
+                      borderRadius: "14px",
+                      padding: "14px"
+                    }}
+                  >
+                    <p style={{ color: "#f9fafb", fontWeight: "bold", marginBottom: "8px" }}>
+                      {preset.name}
+                    </p>
+                    <p style={{ color: "#9ca3af", fontSize: "13px", marginBottom: "6px" }}>
+                      Max Loss: {preset.maxDailyLoss}
+                    </p>
+                    <p style={{ color: "#9ca3af", fontSize: "13px", marginBottom: "6px" }}>
+                      Risk/Trade: {preset.riskPerTrade}
+                    </p>
+                    <p style={{ color: "#9ca3af", fontSize: "13px", marginBottom: "8px" }}>
+                      Max Positions: {preset.maxOpenPositions}
+                    </p>
+                    <p style={{ color: "#d1d5db", fontSize: "12px", lineHeight: "1.6" }}>
+                      {preset.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label style={labelStyle}>Max Daily Loss</label>
+              <input
+                type="text"
+                value={riskSettingsForm.maxDailyLoss}
+                onChange={(event) => handleRiskSettingsInputChange("maxDailyLoss", event.target.value)}
+                placeholder="$10.00"
+                style={cardInputStyle}
+              />
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label style={labelStyle}>Risk Per Trade</label>
+              <input
+                type="text"
+                value={riskSettingsForm.riskPerTrade}
+                onChange={(event) => handleRiskSettingsInputChange("riskPerTrade", event.target.value)}
+                placeholder="1%"
+                style={cardInputStyle}
+              />
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <label style={labelStyle}>Max Open Positions</label>
+              <input
+                type="text"
+                value={riskSettingsForm.maxOpenPositions}
+                onChange={(event) => handleRiskSettingsInputChange("maxOpenPositions", event.target.value)}
+                placeholder="3"
+                style={cardInputStyle}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+              <button onClick={handleSaveRiskSettings} disabled={riskSettingsSaving} style={riskSaveButtonStyle}>
+                {riskSettingsSaving ? "Saving..." : "Save Risk Controls"}
+              </button>
+
+              <button onClick={handleResetRiskSettings} disabled={riskSettingsSaving} style={resetButtonStyle}>
+                Reset Risk Controls
+              </button>
+            </div>
+
+            {riskSettingsError ? renderMessageBox("error", "Risk Settings Error", riskSettingsError) : null}
+            {riskSettingsSuccess ? renderMessageBox("success", "Success", riskSettingsSuccess) : null}
+
+            <div
+              style={{
+                marginTop: "18px",
+                backgroundColor: "#111827",
+                border: "1px solid #1f2937",
+                borderRadius: "16px",
+                padding: "16px"
+              }}
+            >
+              <p style={{ color: "#9ca3af", marginBottom: "10px" }}>Current Risk Controls</p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "14px" }}>
+                <InfoCard label="Max Daily Loss" value={riskData.maxDailyLoss} accent="#f9fafb" />
+                <InfoCard label="Risk Per Trade" value={riskData.riskPerTrade} accent="#facc15" />
+                <InfoCard label="Max Open Positions" value={riskData.maxOpenPositions} accent="#38bdf8" />
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+      </>
+    )
+  }
+
+  const renderSystemDiagnosticsPage = () => {
+    return (
+      <>
+        <PageHeader
+          title="System Diagnostics"
+          subtitle="Safe diagnostics console สำหรับตรวจสุขภาพ backend, risk gate และ system readiness โดยไม่โหลด operations chain หนักทันที"
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(2, minmax(140px, 1fr))",
+              gap: "12px",
+              minWidth: "320px"
+            }}
+          >
+            <InfoCard
+              label="Backend"
+              value={backendStatus}
+              accent={backendStatus === "Connected" ? "#86efac" : "#f87171"}
+            />
+            <InfoCard
+              label="Reliability"
+              value={`${reliabilityScore}/100`}
+              accent={reliabilityScore >= 75 ? "#86efac" : "#facc15"}
             />
           </div>
+        </PageHeader>
 
-          <div style={{ marginBottom: "18px" }}>
-            <p style={{ color: "#9ca3af", marginBottom: "10px", fontWeight: "bold" }}>
-              Filter by Type
-            </p>
-
-            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-              <button onClick={() => setHistoryFilter("ALL")} style={historyFilterButtonStyle("ALL")}>
-                ALL
-              </button>
-              <button onClick={() => setHistoryFilter("START")} style={historyFilterButtonStyle("START")}>
-                START
-              </button>
-              <button onClick={() => setHistoryFilter("STOP")} style={historyFilterButtonStyle("STOP")}>
-                STOP
-              </button>
-              <button
-                onClick={() => setHistoryFilter("EMERGENCY")}
-                style={historyFilterButtonStyle("EMERGENCY")}
-              >
-                EMERGENCY
-              </button>
-              <button
-                onClick={() => setHistoryFilter("SETTINGS")}
-                style={historyFilterButtonStyle("SETTINGS")}
-              >
-                SETTINGS
-              </button>
-              <button onClick={() => setHistoryFilter("SELL")} style={historyFilterButtonStyle("SELL")}>
-                SELL
-              </button>
-            </div>
+        <SectionCard
+          eyebrow="Backend Health"
+          title="Backend Health Monitor"
+          subtitle="สถานะ backend, API version, uptime, bot state, risk status และ daily loss guard จาก FastAPI หรือ mock API"
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: "16px"
+            }}
+          >
+            <MetricCard
+              label="Status"
+              value={backendHealth.status || "-"}
+              accent={backendHealth.status === "ok" ? "#86efac" : "#f87171"}
+              tone={backendHealth.status === "ok" ? "success" : "danger"}
+            />
+            <MetricCard
+              label="Version"
+              value={backendHealth.version || "-"}
+              accent="#38bdf8"
+              tone="info"
+            />
+            <MetricCard
+              label="Environment"
+              value={backendHealth.environment || "-"}
+              accent="#facc15"
+              tone="warning"
+            />
+            <MetricCard
+              label="Uptime"
+              value={backendHealth.uptime || "-"}
+              accent="#d1d5db"
+            />
+            <MetricCard
+              label="Bot Status"
+              value={backendHealth.botStatus || botStatus}
+              accent={(backendHealth.botStatus || botStatus) === "RUNNING" ? "#86efac" : "#f87171"}
+            />
+            <MetricCard
+              label="Risk Status"
+              value={backendHealth.riskStatus || riskData.riskStatus}
+              accent={(backendHealth.riskStatus || riskData.riskStatus) === "OK" ? "#86efac" : "#f87171"}
+            />
+            <MetricCard
+              label="Daily Loss"
+              value={backendHealth.dailyLossStatus || riskData.dailyLossStatus}
+              accent={(backendHealth.dailyLossStatus || riskData.dailyLossStatus) === "OK" ? "#86efac" : "#f87171"}
+            />
+            <MetricCard
+              label="Server Time"
+              value={backendHealth.serverTime || "-"}
+              accent="#9ca3af"
+            />
           </div>
+        </SectionCard>
 
-          <div>
-            <p style={{ color: "#9ca3af", marginBottom: "10px", fontWeight: "bold" }}>
-              Filter by Area
-            </p>
-
-            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-              <button onClick={() => setHistoryAreaFilter("ALL")} style={historyAreaFilterButtonStyle("ALL")}>
-                ALL AREAS
-              </button>
-              <button onClick={() => setHistoryAreaFilter("BOT")} style={historyAreaFilterButtonStyle("BOT")}>
-                BOT
-              </button>
-              <button
-                onClick={() => setHistoryAreaFilter("ACCOUNT")}
-                style={historyAreaFilterButtonStyle("ACCOUNT")}
+        <SectionCard
+          eyebrow="Diagnostics Checks"
+          title="System Readiness Checklist"
+          subtitle="เช็กว่าข้อมูลหลักของระบบโหลดครบหรือไม่ ก่อนเปิด operations console ตัวเต็ม"
+          rightSlot={
+            <StatusPill
+              label={`${diagnosticsScore}/100`}
+              color={diagnosticsScore >= 80 ? "#86efac" : "#facc15"}
+              backgroundColor={diagnosticsScore >= 80 ? "rgba(20, 83, 45, 0.35)" : "rgba(120, 53, 15, 0.35)"}
+            />
+          }
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "14px"
+            }}
+          >
+            {diagnosticsChecks.map((check) => (
+              <div
+                key={check.label}
+                style={{
+                  backgroundColor: "#0b1220",
+                  border: check.passed
+                    ? "1px solid rgba(134, 239, 172, 0.35)"
+                    : "1px solid rgba(248, 113, 113, 0.35)",
+                  borderRadius: "16px",
+                  padding: "16px"
+                }}
               >
-                ACCOUNT
-              </button>
-              <button onClick={() => setHistoryAreaFilter("RISK")} style={historyAreaFilterButtonStyle("RISK")}>
-                RISK
-              </button>
-              <button
-                onClick={() => setHistoryAreaFilter("SYSTEM")}
-                style={historyAreaFilterButtonStyle("SYSTEM")}
-              >
-                SYSTEM
-              </button>
-            </div>
-          </div>
-        </div>
+                <p
+                  style={{
+                    color: check.passed ? "#86efac" : "#f87171",
+                    fontWeight: "bold",
+                    marginBottom: "8px"
+                  }}
+                >
+                  {check.passed ? "PASS" : "WATCH"}
+                </p>
 
-        <HistoryTable historyItems={filteredHistoryItems} />
-      </>
-    )
-  }
-
-  const renderBacktest = () => {
-    return (
-      <>
-        <h1 style={{ fontSize: "42px", marginBottom: "10px" }}>Backtest</h1>
-
-        <p style={{ color: "#84cc16", marginBottom: "30px", fontWeight: "bold" }}>
-          Current Menu: {selectedMenu}
-        </p>
-
-        <div style={panelStyle}>
-          <h3 style={{ marginBottom: "12px" }}>Backtest Summary</h3>
-          <p style={{ color: "#9ca3af", marginBottom: "10px" }}>
-            Total Trades: {backtestData.totalTrades}
-          </p>
-          <p style={{ color: "#9ca3af", marginBottom: "10px" }}>
-            Win Rate: {backtestData.winRate}
-          </p>
-          <p style={{ color: "#9ca3af" }}>Net Profit: {backtestData.netProfit}</p>
-        </div>
-      </>
-    )
-  }
-
-  const renderAiInsights = () => {
-    return (
-      <>
-        <h1 style={{ fontSize: "42px", marginBottom: "10px" }}>AI Insights</h1>
-
-        <p style={{ color: "#84cc16", marginBottom: "30px", fontWeight: "bold" }}>
-          Current Menu: {selectedMenu}
-        </p>
-
-        <div style={panelStyle}>
-          <h3 style={{ marginBottom: "12px" }}>Latest AI Decision</h3>
-          <p style={{ color: "#9ca3af", marginBottom: "10px" }}>
-            Signal: {aiInsights.signal}
-          </p>
-          <p style={{ color: "#9ca3af", marginBottom: "10px" }}>
-            Reason: {aiInsights.reason}
-          </p>
-          <p style={{ color: "#9ca3af" }}>Confidence: {aiInsights.confidence}</p>
-        </div>
-      </>
-    )
-  }
-
-  const renderAiUsage = () => {
-    return (
-      <>
-        <h1 style={{ fontSize: "42px", marginBottom: "10px" }}>AI Usage</h1>
-
-        <p style={{ color: "#84cc16", marginBottom: "30px", fontWeight: "bold" }}>
-          Current Menu: {selectedMenu}
-        </p>
-
-        <div style={grid3Style}>
-          <StatCard title="API Calls" value={aiUsage.apiCalls} color="white" />
-          <StatCard title="Tokens Used" value={aiUsage.tokensUsed} color="#86efac" />
-          <StatCard title="Estimated Cost" value={aiUsage.estimatedCost} color="#facc15" />
-        </div>
-      </>
-    )
-  }
-
-  const renderQuant = () => {
-    return (
-      <>
-        <h1 style={{ fontSize: "42px", marginBottom: "10px" }}>Quant</h1>
-
-        <p style={{ color: "#84cc16", marginBottom: "30px", fontWeight: "bold" }}>
-          Current Menu: {selectedMenu}
-        </p>
-
-        <div style={grid3Style}>
-          <StatCard title="VaR" value={quantStats.var} color="#f87171" />
-          <StatCard title="Volatility" value={quantStats.volatility} color="white" />
-          <StatCard title="Sharpe Ratio" value={quantStats.sharpeRatio} color="#86efac" />
-        </div>
-      </>
-    )
-  }
-
-  const renderSettings = () => {
-    return (
-      <>
-        <h1 style={{ fontSize: "42px", marginBottom: "10px" }}>Settings</h1>
-
-        <p style={{ color: "#84cc16", marginBottom: "30px", fontWeight: "bold" }}>
-          Current Menu: {selectedMenu}
-        </p>
-
-        <div style={panelStyle}>
-          <h3 style={{ marginBottom: "20px" }}>Bot Settings</h3>
-
-          <FormSelect
-            label="Symbol"
-            value={settingsForm.symbol}
-            onChange={(value) => handleSettingsInputChange("symbol", value)}
-            options={symbolOptions}
-            placeholder="Select Symbol"
-            inputStyle={cardInputStyle}
-            labelStyle={labelStyle}
-          />
-
-          <FormSelect
-            label="Timeframe"
-            value={settingsForm.timeframe}
-            onChange={(value) => handleSettingsInputChange("timeframe", value)}
-            options={timeframeOptions}
-            placeholder="Select Timeframe"
-            inputStyle={cardInputStyle}
-            labelStyle={labelStyle}
-          />
-
-          <FormSelect
-            label="Mode"
-            value={settingsForm.mode}
-            onChange={(value) => handleSettingsInputChange("mode", value)}
-            options={modeOptions}
-            placeholder="Select Mode"
-            inputStyle={cardInputStyle}
-            labelStyle={labelStyle}
-          />
-
-          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
-            <button
-              onClick={handleSaveSettings}
-              disabled={settingsSaving}
-              style={actionButtonStyle("#84cc16", "black", settingsSaving)}
-            >
-              {settingsSaving ? "Saving..." : "Save Settings"}
-            </button>
-
-            <button
-              onClick={handleResetBotSettings}
-              disabled={settingsSaving}
-              style={actionButtonStyle("#374151", "white", settingsSaving)}
-            >
-              Reset Bot Settings
-            </button>
-          </div>
-
-          <StatusMessage error={settingsError} success={settingsSuccess} />
-
-          <div style={smallBoxStyle}>
-            <p style={{ color: "#9ca3af", marginBottom: "10px" }}>Saved Values</p>
-            <p style={{ color: "#d1d5db", marginBottom: "8px" }}>
-              Symbol: {settingsData.symbol}
-            </p>
-            <p style={{ color: "#d1d5db", marginBottom: "8px" }}>
-              Timeframe: {settingsData.timeframe}
-            </p>
-            <p style={{ color: "#d1d5db" }}>Mode: {settingsData.mode}</p>
-          </div>
-        </div>
-
-        <div style={panelStyle}>
-          <h3 style={{ marginBottom: "20px" }}>Account Summary Settings</h3>
-
-          <FormSelect
-            label="Account Scenario"
-            value={selectedAccountScenario}
-            onChange={handleAccountScenarioChange}
-            options={accountScenarioOptions.map((scenario) => scenario.name)}
-            placeholder="Custom"
-            inputStyle={cardInputStyle}
-            labelStyle={labelStyle}
-            includeCustom
-          />
-
-          <div style={guideGrid4Style}>
-            {accountScenarioOptions.map((scenario) => (
-              <GuideBox
-                key={scenario.name}
-                active={selectedAccountScenario === scenario.name}
-                title={scenario.name}
-                lines={[
-                  `Balance: ${scenario.balance}`,
-                  `Daily P&L: ${scenario.dailyPnl}`,
-                  `Daily Loss: ${scenario.currentDailyLoss}`
-                ]}
-                description={scenario.description}
-              />
+                <p style={{ color: "#d1d5db", fontWeight: "bold" }}>
+                  {check.label}
+                </p>
+              </div>
             ))}
           </div>
+        </SectionCard>
 
-          <FormInput
-            label="Balance"
-            value={accountSettingsForm.balance}
-            onChange={(value) => handleAccountSettingsInputChange("balance", value)}
-            placeholder="$33.85"
-            inputStyle={cardInputStyle}
-            labelStyle={labelStyle}
-          />
-
-          <FormInput
-            label="Daily P&L"
-            value={accountSettingsForm.dailyPnl}
-            onChange={(value) => handleAccountSettingsInputChange("dailyPnl", value)}
-            placeholder="+2.95 or -5.00"
-            inputStyle={cardInputStyle}
-            labelStyle={labelStyle}
-          />
-
-          <FormInput
-            label="Current Daily Loss"
-            value={accountSettingsForm.currentDailyLoss}
-            onChange={(value) =>
-              handleAccountSettingsInputChange("currentDailyLoss", value)
-            }
-            placeholder="0 or 2.50"
-            inputStyle={cardInputStyle}
-            labelStyle={labelStyle}
-          />
-
-          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
+        <SectionCard
+          eyebrow="Operations Console"
+          title="12-Layer Trading Operations Console"
+          subtitle="ส่วนนี้เป็น console ตัวเต็มที่มี component chain หลายชั้น ถ้าเปิดแล้วจอขาว แปลว่า error อยู่ใน OperationsPanel หรือ component ลูก"
+          rightSlot={
             <button
-              onClick={handleSaveAccountSettings}
-              disabled={accountSettingsSaving}
-              style={actionButtonStyle("#84cc16", "black", accountSettingsSaving)}
+              type="button"
+              onClick={() => {
+                setShowOperationsConsole((prev) => {
+                  const nextValue = !prev
+                  if (!nextValue) setShowFullOperationsChain(false)
+                  return nextValue
+                })
+              }}
+              style={{
+                border: "none",
+                padding: "12px 18px",
+                borderRadius: "14px",
+                fontWeight: "bold",
+                cursor: "pointer",
+                backgroundColor: showOperationsConsole ? "#f87171" : "#84cc16",
+                color: showOperationsConsole ? "white" : "black",
+                boxShadow: "0 12px 24px rgba(0, 0, 0, 0.18)"
+              }}
             >
-              {accountSettingsSaving ? "Saving..." : "Save Account Settings"}
+              {showOperationsConsole ? "Hide Operations Console" : "Show Operations Console"}
             </button>
-
-            <button
-              onClick={handleResetAccountSettings}
-              disabled={accountSettingsSaving}
-              style={actionButtonStyle("#374151", "white", accountSettingsSaving)}
+          }
+        >
+          {!showOperationsConsole ? (
+            <div
+              style={{
+                backgroundColor: "#0b1220",
+                border: "1px solid rgba(55, 65, 81, 0.8)",
+                borderRadius: "20px",
+                padding: "22px"
+              }}
             >
-              Reset Account Settings
-            </button>
-          </div>
+              <p
+                style={{
+                  color: "#facc15",
+                  fontWeight: "bold",
+                  marginBottom: "10px"
+                }}
+              >
+                Operations Console is in safe mode.
+              </p>
 
-          <StatusMessage error={accountSettingsError} success={accountSettingsSuccess} />
+              <p style={{ color: "#9ca3af", lineHeight: "1.7" }}>
+                หน้า Diagnostics เปิดได้แล้วโดยไม่โหลด component chain หนักทันที
+                กดปุ่ม Show Operations Console เพื่อเปิด overview แบบปลอดภัยก่อน
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: "18px" }}>
+              <div
+                style={{
+                  backgroundColor: "#0b1220",
+                  border: "1px solid rgba(134, 239, 172, 0.35)",
+                  borderRadius: "20px",
+                  padding: "22px"
+                }}
+              >
+                <p
+                  style={{
+                    color: "#86efac",
+                    fontWeight: "bold",
+                    marginBottom: "10px",
+                    fontSize: "18px"
+                  }}
+                >
+                  Safe Operations Overview Loaded
+                </p>
 
-          <div style={smallBoxStyle}>
-            <p style={{ color: "#9ca3af", marginBottom: "10px" }}>
-              Current Account Summary
-            </p>
-            <p style={{ color: "#d1d5db", marginBottom: "8px" }}>
-              Balance: {balance}
-            </p>
-            <p style={{ color: "#d1d5db", marginBottom: "8px" }}>
-              Daily P&L: {dailyPnl}
-            </p>
-            <p style={{ color: "#d1d5db" }}>
-              Current Daily Loss: {riskData.currentDailyLoss}
-            </p>
-          </div>
-        </div>
+                <p style={{ color: "#9ca3af", lineHeight: "1.7", marginBottom: "18px" }}>
+                  ตอนนี้ปุ่ม Show Operations Console จะไม่โหลด OperationsPanel ตัวเต็มทันที
+                  เพื่อกันจอขาว ถ้าต้องการ debug chain ตัวเต็ม ให้กด Load Full 12-Layer Chain ด้านล่าง
+                </p>
 
-        <div style={panelStyle}>
-          <h3 style={{ marginBottom: "20px" }}>Risk Controls Settings</h3>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+                    gap: "14px",
+                    marginBottom: "18px"
+                  }}
+                >
+                  <InfoCard
+                    label="Backend"
+                    value={backendStatus}
+                    accent={backendStatus === "Connected" ? "#86efac" : "#f87171"}
+                  />
+                  <InfoCard
+                    label="Bot Status"
+                    value={botStatus}
+                    accent={botStatus === "RUNNING" ? "#86efac" : "#f87171"}
+                  />
+                  <InfoCard
+                    label="Risk Status"
+                    value={riskData.riskStatus || "-"}
+                    accent={riskData.riskStatus === "OK" ? "#86efac" : "#facc15"}
+                  />
+                  <InfoCard
+                    label="Daily Loss"
+                    value={riskData.dailyLossStatus || "-"}
+                    accent={riskData.dailyLossStatus === "OK" ? "#86efac" : "#f87171"}
+                  />
+                  <InfoCard
+                    label="Open Positions"
+                    value={openPositionsCount}
+                    accent={Number(openPositionsCount) > 0 ? "#38bdf8" : "#facc15"}
+                  />
+                  <InfoCard
+                    label="Reliability"
+                    value={`${reliabilityScore}/100`}
+                    accent={reliabilityScore >= 75 ? "#86efac" : "#facc15"}
+                  />
+                </div>
 
-          <FormSelect
-            label="Risk Preset"
-            value={selectedRiskPreset}
-            onChange={handleRiskPresetChange}
-            options={riskPresetOptions.map((preset) => preset.name)}
-            placeholder="Custom"
-            inputStyle={cardInputStyle}
-            labelStyle={labelStyle}
-            includeCustom
-          />
+                <button
+                  type="button"
+                  onClick={() => setShowFullOperationsChain((prev) => !prev)}
+                  style={{
+                    border: "none",
+                    padding: "12px 18px",
+                    borderRadius: "14px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                    backgroundColor: showFullOperationsChain ? "#f87171" : "#38bdf8",
+                    color: showFullOperationsChain ? "white" : "black",
+                    boxShadow: "0 12px 24px rgba(0, 0, 0, 0.18)"
+                  }}
+                >
+                  {showFullOperationsChain ? "Hide Full 12-Layer Chain" : "Load Full 12-Layer Chain Debug"}
+                </button>
+              </div>
 
-          <div style={guideGrid3Style}>
-            {riskPresetOptions.map((preset) => (
-              <GuideBox
-                key={preset.name}
-                active={selectedRiskPreset === preset.name}
-                title={preset.name}
-                lines={[
-                  `Max Loss: ${preset.maxDailyLoss}`,
-                  `Risk/Trade: ${preset.riskPerTrade}`,
-                  `Max Positions: ${preset.maxOpenPositions}`
-                ]}
-                description={preset.description}
-              />
-            ))}
-          </div>
-
-          <FormInput
-            label="Max Daily Loss"
-            value={riskSettingsForm.maxDailyLoss}
-            onChange={(value) => handleRiskSettingsInputChange("maxDailyLoss", value)}
-            placeholder="$10.00"
-            inputStyle={cardInputStyle}
-            labelStyle={labelStyle}
-          />
-
-          <FormInput
-            label="Risk Per Trade"
-            value={riskSettingsForm.riskPerTrade}
-            onChange={(value) => handleRiskSettingsInputChange("riskPerTrade", value)}
-            placeholder="1%"
-            inputStyle={cardInputStyle}
-            labelStyle={labelStyle}
-          />
-
-          <FormInput
-            label="Max Open Positions"
-            value={riskSettingsForm.maxOpenPositions}
-            onChange={(value) =>
-              handleRiskSettingsInputChange("maxOpenPositions", value)
-            }
-            placeholder="3"
-            inputStyle={cardInputStyle}
-            labelStyle={labelStyle}
-          />
-
-          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
-            <button
-              onClick={handleSaveRiskSettings}
-              disabled={riskSettingsSaving}
-              style={actionButtonStyle("#84cc16", "black", riskSettingsSaving)}
-            >
-              {riskSettingsSaving ? "Saving..." : "Save Risk Controls"}
-            </button>
-
-            <button
-              onClick={handleResetRiskSettings}
-              disabled={riskSettingsSaving}
-              style={actionButtonStyle("#374151", "white", riskSettingsSaving)}
-            >
-              Reset Risk Controls
-            </button>
-          </div>
-
-          <StatusMessage error={riskSettingsError} success={riskSettingsSuccess} />
-
-          <div style={smallBoxStyle}>
-            <p style={{ color: "#9ca3af", marginBottom: "10px" }}>
-              Current Risk Controls
-            </p>
-            <p style={{ color: "#d1d5db", marginBottom: "8px" }}>
-              Max Daily Loss: {riskData.maxDailyLoss}
-            </p>
-            <p style={{ color: "#d1d5db", marginBottom: "8px" }}>
-              Risk Per Trade: {riskData.riskPerTrade}
-            </p>
-            <p style={{ color: "#d1d5db" }}>
-              Max Open Positions: {riskData.maxOpenPositions}
-            </p>
-          </div>
-        </div>
+              {showFullOperationsChain ? (
+                <OperationsPanelErrorBoundary resetKey={String(showFullOperationsChain)}>
+                  <OperationsPanel
+                    backendHealth={backendHealth}
+                    backendStatus={backendStatus}
+                    botStatus={botStatus}
+                    riskData={riskData}
+                    lastUpdated={lastUpdated}
+                    loadError={loadError}
+                    openPositionsCount={openPositionsCount}
+                    totalHistoryRecords={totalHistoryRecords}
+                    diagnosticsScore={diagnosticsScore}
+                    reliabilityScore={reliabilityScore}
+                  />
+                </OperationsPanelErrorBoundary>
+              ) : null}
+            </div>
+          )}
+        </SectionCard>
       </>
     )
   }
@@ -2012,12 +2645,15 @@ function App() {
       return (
         <div
           style={{
-            backgroundColor: "#111827",
+            background:
+              "linear-gradient(135deg, rgba(17, 24, 39, 0.98), rgba(15, 23, 42, 0.96))",
+            border: "1px solid rgba(55, 65, 81, 0.72)",
+            borderRadius: "24px",
             padding: "40px",
-            borderRadius: "16px",
             color: "#d1d5db",
             fontSize: "20px",
-            fontWeight: "bold"
+            fontWeight: "bold",
+            boxShadow: "0 20px 45px rgba(0, 0, 0, 0.22)"
           }}
         >
           Loading dashboard data...
@@ -2029,9 +2665,12 @@ function App() {
       return (
         <div
           style={{
-            backgroundColor: "#111827",
+            background:
+              "linear-gradient(135deg, rgba(17, 24, 39, 0.98), rgba(15, 23, 42, 0.96))",
+            border: "1px solid rgba(55, 65, 81, 0.72)",
+            borderRadius: "24px",
             padding: "40px",
-            borderRadius: "16px"
+            boxShadow: "0 20px 45px rgba(0, 0, 0, 0.22)"
           }}
         >
           <h2 style={{ color: "#f87171", marginBottom: "12px" }}>
@@ -2042,219 +2681,43 @@ function App() {
             Error: {loadError}
           </p>
 
-          <button
-            onClick={loadDashboardData}
-            disabled={loading}
-            style={actionButtonStyle("#f59e0b", "black", loading)}
-          >
+          <button onClick={loadDashboardData} disabled={loading} style={retryButtonStyle}>
             Retry Load
           </button>
         </div>
       )
     }
 
-    if (selectedMenu === "Dashboard") return renderDashboard()
-    if (selectedMenu === "Backtest") return renderBacktest()
-    if (selectedMenu === "History") return renderHistory()
-    if (selectedMenu === "AI Insights") return renderAiInsights()
-    if (selectedMenu === "AI Usage") return renderAiUsage()
-    if (selectedMenu === "Quant") return renderQuant()
-    if (selectedMenu === "Settings") return renderSettings()
+    if (selectedMenu === "Dashboard") return renderDashboardPage()
+    if (selectedMenu === "Backtest") return renderBacktestPage()
+    if (selectedMenu === "History") return renderHistoryPage()
+    if (selectedMenu === "AI Insights") return renderAiInsightsPage()
+    if (selectedMenu === "AI Usage") return renderAiUsagePage()
+    if (selectedMenu === "Quant") return renderQuantPage()
+    if (selectedMenu === "Settings") return renderSettingsPage()
+    if (selectedMenu === "System Diagnostics") return renderSystemDiagnosticsPage()
 
-    return null
+    return renderDashboardPage()
   }
 
   return (
     <div
       style={{
-        background:
-          "radial-gradient(circle at top left, rgba(56, 189, 248, 0.08), transparent 24%), radial-gradient(circle at bottom right, rgba(132, 204, 22, 0.08), transparent 24%), #0b0f14",
-        color: "white",
         minHeight: "100vh",
         display: "flex",
-        fontFamily: "Arial, sans-serif"
+        color: "white",
+        fontFamily: "Arial, sans-serif",
+        background:
+          "radial-gradient(circle at top left, rgba(56, 189, 248, 0.08), transparent 22%), radial-gradient(circle at bottom right, rgba(132, 204, 22, 0.08), transparent 22%), #0b0f14"
       }}
     >
       <Sidebar selectedMenu={selectedMenu} setSelectedMenu={setSelectedMenu} />
 
-      <div style={{ flex: 1, padding: "40px" }}>{renderContent()}</div>
+      <div style={{ flex: 1, padding: "32px" }}>
+        {renderContent()}
+      </div>
     </div>
   )
-}
-
-function InfoBox({ label, value, color = "#d1d5db" }) {
-  return (
-    <div style={smallBoxStyle}>
-      <p style={{ color: "#9ca3af", marginBottom: "8px" }}>{label}</p>
-      <p style={{ color, fontWeight: "bold" }}>{value}</p>
-    </div>
-  )
-}
-
-function FormInput({ label, value, onChange, placeholder, inputStyle, labelStyle }) {
-  return (
-    <div style={{ marginBottom: "16px" }}>
-      <label style={labelStyle}>{label}</label>
-      <input
-        type="text"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        style={inputStyle}
-      />
-    </div>
-  )
-}
-
-function FormSelect({
-  label,
-  value,
-  onChange,
-  options,
-  placeholder,
-  inputStyle,
-  labelStyle,
-  includeCustom = false
-}) {
-  return (
-    <div style={{ marginBottom: "16px" }}>
-      <label style={labelStyle}>{label}</label>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        style={inputStyle}
-      >
-        {includeCustom ? (
-          <option value="Custom">Custom</option>
-        ) : (
-          <option value="">{placeholder}</option>
-        )}
-
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </div>
-  )
-}
-
-function GuideBox({ active, title, lines, description }) {
-  return (
-    <div
-      style={{
-        backgroundColor: active ? "#1a2e05" : "#111827",
-        border: active ? "1px solid #84cc16" : "1px solid #1f2937",
-        borderRadius: "14px",
-        padding: "14px"
-      }}
-    >
-      <p style={{ color: "#d1d5db", fontWeight: "bold", marginBottom: "8px" }}>
-        {title}
-      </p>
-
-      {lines.map((line) => (
-        <p
-          key={line}
-          style={{
-            color: "#9ca3af",
-            marginBottom: "6px",
-            fontSize: "14px"
-          }}
-        >
-          {line}
-        </p>
-      ))}
-
-      <p style={{ color: "#d1d5db", fontSize: "13px" }}>{description}</p>
-    </div>
-  )
-}
-
-function StatusMessage({ error, success }) {
-  return (
-    <>
-      {error && (
-        <div
-          style={{
-            backgroundColor: "#450a0a",
-            border: "1px solid #991b1b",
-            borderRadius: "14px",
-            padding: "16px",
-            marginBottom: "16px"
-          }}
-        >
-          <p style={{ color: "#fecaca", fontWeight: "bold" }}>{error}</p>
-        </div>
-      )}
-
-      {success && (
-        <div
-          style={{
-            backgroundColor: "#052e16",
-            border: "1px solid #166534",
-            borderRadius: "14px",
-            padding: "16px",
-            marginBottom: "16px"
-          }}
-        >
-          <p style={{ color: "#bbf7d0", fontWeight: "bold" }}>{success}</p>
-        </div>
-      )}
-    </>
-  )
-}
-
-const panelStyle = {
-  background:
-    "linear-gradient(135deg, rgba(17, 24, 39, 0.98), rgba(11, 18, 32, 0.98))",
-  border: "1px solid rgba(55, 65, 81, 0.78)",
-  padding: "24px",
-  borderRadius: "20px",
-  marginBottom: "24px",
-  boxShadow: "0 18px 44px rgba(0, 0, 0, 0.2)"
-}
-
-const smallBoxStyle = {
-  backgroundColor: "#0b1220",
-  border: "1px solid #1f2937",
-  borderRadius: "14px",
-  padding: "16px"
-}
-
-const grid3Style = {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, 1fr)",
-  gap: "20px"
-}
-
-const grid4Style = {
-  display: "grid",
-  gridTemplateColumns: "repeat(4, 1fr)",
-  gap: "16px"
-}
-
-const guideGrid3Style = {
-  backgroundColor: "#0b1220",
-  border: "1px solid #1f2937",
-  borderRadius: "14px",
-  padding: "16px",
-  marginBottom: "16px",
-  display: "grid",
-  gridTemplateColumns: "repeat(3, 1fr)",
-  gap: "14px"
-}
-
-const guideGrid4Style = {
-  backgroundColor: "#0b1220",
-  border: "1px solid #1f2937",
-  borderRadius: "14px",
-  padding: "16px",
-  marginBottom: "16px",
-  display: "grid",
-  gridTemplateColumns: "repeat(4, 1fr)",
-  gap: "14px"
 }
 
 export default App

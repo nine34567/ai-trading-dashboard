@@ -1,12 +1,19 @@
-const API_BASE_URL = "http://localhost:8000"
+const configuredApiBaseUrl =
+  import.meta.env?.VITE_API_BASE_URL || "http://localhost:8000"
+
+const API_BASE_URL = configuredApiBaseUrl.replace(/\/$/, "")
 const MOCK_STORAGE_KEY = "ai-trading-dashboard-mock-state"
+const REQUEST_TIMEOUT_MS = 10000
 
 const isBrowser = typeof window !== "undefined"
 
+const FORCE_MOCK_API = import.meta.env?.VITE_USE_MOCK_API === "true"
+
 const USE_MOCK_API =
-  isBrowser &&
-  window.location.hostname !== "localhost" &&
-  window.location.hostname !== "127.0.0.1"
+  FORCE_MOCK_API ||
+  (isBrowser &&
+    window.location.hostname !== "localhost" &&
+    window.location.hostname !== "127.0.0.1")
 
 const defaultMockState = {
   botStatus: "RUNNING",
@@ -29,6 +36,7 @@ const defaultMockState = {
   historyItems: [
     {
       date: "2026-04-23 09:00",
+      area: "BOT",
       symbol: "SYSTEM",
       type: "START",
       pnl: "-",
@@ -36,6 +44,7 @@ const defaultMockState = {
     },
     {
       date: "2026-04-22 14:30",
+      area: "BOT",
       symbol: "OILCash",
       type: "SELL",
       pnl: "+1.24",
@@ -43,6 +52,7 @@ const defaultMockState = {
     },
     {
       date: "2026-04-22 10:15",
+      area: "BOT",
       symbol: "USDJPYmicro",
       type: "SELL",
       pnl: "+0.15",
@@ -59,6 +69,28 @@ function mockResolve(data) {
   return new Promise((resolve) => {
     setTimeout(() => resolve(cloneData(data)), 150)
   })
+}
+
+function normalizeHistoryItems(historyItems) {
+  if (!Array.isArray(historyItems)) return cloneData(defaultMockState.historyItems)
+
+  return historyItems.map((item) => ({
+    date: item.date || "-",
+    area: item.area || inferAreaFromLegacySymbol(item.symbol),
+    symbol: item.symbol || "SYSTEM",
+    type: item.type || "SYSTEM",
+    pnl: item.pnl || "-",
+    detail: item.detail || "-"
+  }))
+}
+
+function inferAreaFromLegacySymbol(symbol) {
+  if (symbol === "BOT") return "BOT"
+  if (symbol === "ACCOUNT") return "ACCOUNT"
+  if (symbol === "RISK") return "RISK"
+  if (symbol === "SYSTEM") return "SYSTEM"
+
+  return "BOT"
 }
 
 function readMockState() {
@@ -90,9 +122,7 @@ function readMockState() {
         ...defaultMockState.accountSettingsData,
         ...(parsedState.accountSettingsData || {})
       },
-      historyItems: Array.isArray(parsedState.historyItems)
-        ? parsedState.historyItems
-        : defaultMockState.historyItems
+      historyItems: normalizeHistoryItems(parsedState.historyItems)
     }
   } catch {
     return cloneData(defaultMockState)
@@ -105,26 +135,48 @@ function saveMockState(state) {
 }
 
 async function requestJson(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {})
-    },
-    ...options
-  })
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
-  const data = await response.json()
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {})
+      },
+      signal: controller.signal,
+      ...options
+    })
 
-  if (!response.ok) {
-    throw new Error(data.detail || `Request failed: ${response.status}`)
+    const contentType = response.headers.get("content-type") || ""
+    const isJson = contentType.includes("application/json")
+
+    const data = isJson ? await response.json() : await response.text()
+
+    if (!response.ok) {
+      if (typeof data === "string") {
+        throw new Error(data || `Request failed: ${response.status}`)
+      }
+
+      throw new Error(data.detail || data.message || `Request failed: ${response.status}`)
+    }
+
+    return data
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`)
+    }
+
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
   }
-
-  return data
 }
 
 function tryParseMoney(value) {
   const cleanedValue = String(value)
     .replace("$", "")
+    .replace("+", "")
     .replace(",", "")
     .trim()
 
@@ -187,9 +239,17 @@ function getCurrentDateTime() {
   return `${year}-${month}-${day} ${hour}:${minute}`
 }
 
-function addMockHistoryItem(state, actionType, symbol = "SYSTEM", pnl = "-", detail = "-") {
+function addMockHistoryItem(
+  state,
+  actionType,
+  area = "SYSTEM",
+  symbol = "SYSTEM",
+  pnl = "-",
+  detail = "-"
+) {
   state.historyItems.unshift({
     date: getCurrentDateTime(),
+    area,
     symbol,
     type: actionType,
     pnl,
@@ -335,12 +395,55 @@ function getMockRiskControls(state) {
   }
 }
 
+function getMockBackendHealth(state) {
+  const riskControls = getMockRiskControls(state)
+  const positions = getMockPositions(state)
+
+  return {
+    appName: "AI Trading Dashboard Backend",
+    version: "0.2.0",
+    environment: "mock-production",
+    status: "ok",
+    message: "mock backend connected",
+    serverTime: new Date().toLocaleString(),
+    startedAt: "-",
+    uptimeSeconds: 0,
+    uptime: "mock session",
+    botStatus: state.botStatus,
+    systemMode: getMockSystemMode(state),
+    activeSymbol: state.settingsData.symbol,
+    timeframe: state.settingsData.timeframe,
+    mode: state.settingsData.mode,
+    openPositions: positions.length,
+    historyRecords: state.historyItems.length,
+    riskStatus: riskControls.riskStatus,
+    dailyLossStatus: riskControls.dailyLossStatus
+  }
+}
+
+function getMockHistorySummary(state) {
+  return {
+    totalRecords: state.historyItems.length,
+    botRecords: state.historyItems.filter(
+      (item) => (item.area || item.symbol) === "BOT"
+    ).length,
+    accountRecords: state.historyItems.filter(
+      (item) => (item.area || item.symbol) === "ACCOUNT"
+    ).length,
+    riskRecords: state.historyItems.filter(
+      (item) => (item.area || item.symbol) === "RISK"
+    ).length,
+    systemRecords: state.historyItems.filter(
+      (item) => (item.area || item.symbol) === "SYSTEM"
+    ).length
+  }
+}
+
 export function getBackendHealth() {
   if (USE_MOCK_API) {
-    return mockResolve({
-      status: "ok",
-      message: "mock backend connected"
-    })
+    const state = readMockState()
+
+    return mockResolve(getMockBackendHealth(state))
   }
 
   return requestJson("/api/health")
@@ -383,11 +486,33 @@ export function getDashboardData() {
       positions: getMockPositions(state),
       chartData: getMockChartData(state),
       historyItems: state.historyItems,
+      backendHealth: getMockBackendHealth(state),
       fetchedAt: new Date().toLocaleTimeString()
     })
   }
 
   return requestJson("/api/dashboard")
+}
+
+export function getSystemStatus() {
+  if (USE_MOCK_API) {
+    const state = readMockState()
+    const riskControls = getMockRiskControls(state)
+    const positions = getMockPositions(state)
+
+    return mockResolve({
+      backendHealth: getMockBackendHealth(state),
+      settings: state.settingsData,
+      riskSettings: state.riskSettingsData,
+      accountSettings: state.accountSettingsData,
+      riskControls,
+      positions,
+      historySummary: getMockHistorySummary(state),
+      serverTime: new Date().toLocaleString()
+    })
+  }
+
+  return requestJson("/api/system/status")
 }
 
 export function startBot() {
@@ -400,6 +525,7 @@ export function startBot() {
     addMockHistoryItem(
       state,
       "START",
+      "BOT",
       "SYSTEM",
       "-",
       "Bot status changed to RUNNING."
@@ -412,7 +538,8 @@ export function startBot() {
       systemMode: getMockSystemMode(state),
       lastAction: state.lastAction,
       positions: getMockPositions(state),
-      historyItems: state.historyItems
+      historyItems: state.historyItems,
+      backendHealth: getMockBackendHealth(state)
     })
   }
 
@@ -431,6 +558,7 @@ export function stopBot() {
     addMockHistoryItem(
       state,
       "STOP",
+      "BOT",
       "SYSTEM",
       "-",
       "Bot status changed to STOPPED."
@@ -443,7 +571,8 @@ export function stopBot() {
       systemMode: getMockSystemMode(state),
       lastAction: state.lastAction,
       positions: getMockPositions(state),
-      historyItems: state.historyItems
+      historyItems: state.historyItems,
+      backendHealth: getMockBackendHealth(state)
     })
   }
 
@@ -462,6 +591,7 @@ export function emergencyStopBot() {
     addMockHistoryItem(
       state,
       "EMERGENCY",
+      "BOT",
       "SYSTEM",
       "-",
       "Emergency stop activated. Bot status changed to STOPPED."
@@ -474,7 +604,8 @@ export function emergencyStopBot() {
       systemMode: getMockSystemMode(state),
       lastAction: state.lastAction,
       positions: getMockPositions(state),
-      historyItems: state.historyItems
+      historyItems: state.historyItems,
+      backendHealth: getMockBackendHealth(state)
     })
   }
 
@@ -507,7 +638,7 @@ export function saveSettings(payload) {
     state.settingsData = newSettingsData
     state.lastAction = "Settings saved"
 
-    addMockHistoryItem(state, "SETTINGS", "BOT", "-", detail)
+    addMockHistoryItem(state, "SETTINGS", "BOT", "SYSTEM", "-", detail)
 
     saveMockState(state)
 
@@ -515,7 +646,8 @@ export function saveSettings(payload) {
       message: "Settings saved successfully",
       settings: state.settingsData,
       lastAction: state.lastAction,
-      historyItems: state.historyItems
+      historyItems: state.historyItems,
+      backendHealth: getMockBackendHealth(state)
     })
   }
 
@@ -544,7 +676,7 @@ export function saveRiskSettings(payload) {
     state.riskSettingsData = validatedRiskSettings
     state.lastAction = "Risk settings saved"
 
-    addMockHistoryItem(state, "SETTINGS", "RISK", "-", detail)
+    addMockHistoryItem(state, "SETTINGS", "RISK", "SYSTEM", "-", detail)
 
     saveMockState(state)
 
@@ -553,7 +685,8 @@ export function saveRiskSettings(payload) {
       riskSettings: state.riskSettingsData,
       riskControls: getMockRiskControls(state),
       lastAction: state.lastAction,
-      historyItems: state.historyItems
+      historyItems: state.historyItems,
+      backendHealth: getMockBackendHealth(state)
     })
   }
 
@@ -582,7 +715,7 @@ export function saveAccountSettings(payload) {
     state.accountSettingsData = validatedAccountSettings
     state.lastAction = "Account settings saved"
 
-    addMockHistoryItem(state, "SETTINGS", "ACCOUNT", "-", detail)
+    addMockHistoryItem(state, "SETTINGS", "ACCOUNT", "SYSTEM", "-", detail)
 
     saveMockState(state)
 
@@ -591,7 +724,8 @@ export function saveAccountSettings(payload) {
       accountSettings: state.accountSettingsData,
       riskControls: getMockRiskControls(state),
       lastAction: state.lastAction,
-      historyItems: state.historyItems
+      historyItems: state.historyItems,
+      backendHealth: getMockBackendHealth(state)
     })
   }
 
@@ -613,7 +747,8 @@ export function clearHistory() {
     return mockResolve({
       message: "History cleared successfully",
       historyItems: state.historyItems,
-      lastAction: state.lastAction
+      lastAction: state.lastAction,
+      backendHealth: getMockBackendHealth(state)
     })
   }
 

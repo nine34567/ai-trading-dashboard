@@ -58,6 +58,12 @@ function Sidebar({ selectedMenu, setSelectedMenu }) {
                     icon: "⚙",
                     description: "Bot, account, risk controls",
                     accent: "#e5e7eb"
+                },
+                {
+                    name: "System Diagnostics",
+                    icon: "▣",
+                    description: "Production console and health checks",
+                    accent: "#f87171"
                 }
             ]
         }
@@ -65,17 +71,21 @@ function Sidebar({ selectedMenu, setSelectedMenu }) {
 
     const flatMenus = menuGroups.flatMap((group) => group.items)
 
+    const normalizedSelectedMenu = String(selectedMenu || "").trim()
+
     const activeMenu =
-        flatMenus.find((item) => item.name === selectedMenu) || flatMenus[0]
+        flatMenus.find((item) => item.name === normalizedSelectedMenu) || flatMenus[0]
 
     const handleSelectMenu = (menuName) => {
+        const normalizedMenuName = String(menuName || "").trim()
+
         if (typeof setSelectedMenu === "function") {
-            setSelectedMenu(menuName)
+            setSelectedMenu(normalizedMenuName)
         }
     }
 
     const getMenuItemStyle = (item) => {
-        const isActive = selectedMenu === item.name
+        const isActive = normalizedSelectedMenu === item.name
         const isHovered = hoveredMenu === item.name
 
         return {
@@ -115,15 +125,17 @@ function Sidebar({ selectedMenu, setSelectedMenu }) {
                 width: "286px",
                 minWidth: "286px",
                 minHeight: "100vh",
+                maxHeight: "100vh",
                 background:
                     "linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(3, 7, 18, 0.98))",
                 borderRight: "1px solid rgba(55, 65, 81, 0.85)",
-                padding: "24px 18px",
+                padding: "24px 18px 80px",
                 position: "sticky",
                 top: 0,
                 alignSelf: "flex-start",
                 boxSizing: "border-box",
-                overflow: "hidden"
+                overflowY: "auto",
+                overflowX: "hidden"
             }}
         >
             <div
@@ -297,12 +309,16 @@ function Sidebar({ selectedMenu, setSelectedMenu }) {
                             </p>
 
                             {group.items.map((item) => {
-                                const isActive = selectedMenu === item.name
+                                const isActive = normalizedSelectedMenu === item.name
 
                                 return (
                                     <button
                                         key={item.name}
                                         type="button"
+                                        onMouseDown={(event) => {
+                                            event.preventDefault()
+                                            handleSelectMenu(item.name)
+                                        }}
                                         onClick={() => handleSelectMenu(item.name)}
                                         onMouseEnter={() => setHoveredMenu(item.name)}
                                         onMouseLeave={() => setHoveredMenu("")}

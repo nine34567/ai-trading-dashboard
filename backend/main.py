@@ -1,13 +1,22 @@
+from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime
 from pydantic import BaseModel
 
-app = FastAPI()
+APP_STARTED_AT = datetime.now()
+
+app = FastAPI(
+    title="AI Trading Dashboard Backend",
+    version="0.2.0"
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -80,10 +89,33 @@ class AccountSettingsPayload(BaseModel):
     currentDailyLoss: str
 
 
+def get_server_time():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_uptime_seconds():
+    return int((datetime.now() - APP_STARTED_AT).total_seconds())
+
+
+def format_uptime(seconds):
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    remaining_seconds = seconds % 60
+
+    if hours > 0:
+        return f"{hours}h {minutes}m {remaining_seconds}s"
+
+    if minutes > 0:
+        return f"{minutes}m {remaining_seconds}s"
+
+    return f"{remaining_seconds}s"
+
+
 def try_parse_money(value):
     cleaned_value = (
         str(value)
         .replace("$", "")
+        .replace("+", "")
         .replace(",", "")
         .strip()
     )
@@ -172,7 +204,7 @@ def validate_risk_settings(payload):
         )
 
     normalized_risk_settings = {
-        "maxDailyLoss": f"${max_daily_loss_amount:.2f}",
+        "maxDailyLoss": format_money(max_daily_loss_amount),
         "riskPerTrade": f"{risk_per_trade_percent:g}%",
         "maxOpenPositions": str(max_open_positions)
     }
@@ -258,7 +290,13 @@ def get_positions():
     return []
 
 
-def add_history_item(action_type, area="SYSTEM", symbol="SYSTEM", pnl="-", detail="-"):
+def add_history_item(
+    action_type,
+    area="SYSTEM",
+    symbol="SYSTEM",
+    pnl="-",
+    detail="-"
+):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     new_item = {
@@ -277,13 +315,49 @@ def get_chart_data():
     symbol = settings_data["symbol"].upper()
 
     if "XAU" in symbol:
-        prices = [2328.5, 2330.2, 2329.4, 2332.1, 2335.6, 2334.8, 2338.2, 2340.1]
+        prices = [
+            2328.5,
+            2330.2,
+            2329.4,
+            2332.1,
+            2335.6,
+            2334.8,
+            2338.2,
+            2340.1
+        ]
     elif "JPY" in symbol:
-        prices = [158.08, 158.12, 158.05, 157.98, 158.20, 158.14, 158.30, 158.25]
+        prices = [
+            158.08,
+            158.12,
+            158.05,
+            157.98,
+            158.20,
+            158.14,
+            158.30,
+            158.25
+        ]
     else:
-        prices = [84.10, 84.35, 84.20, 84.70, 84.55, 85.05, 84.90, 85.30]
+        prices = [
+            84.10,
+            84.35,
+            84.20,
+            84.70,
+            84.55,
+            85.05,
+            84.90,
+            85.30
+        ]
 
-    times = ["09:00", "09:15", "09:30", "09:45", "10:00", "10:15", "10:30", "10:45"]
+    times = [
+        "09:00",
+        "09:15",
+        "09:30",
+        "09:45",
+        "10:00",
+        "10:15",
+        "10:30",
+        "10:45"
+    ]
 
     return [
         {
@@ -312,6 +386,19 @@ def get_risk_controls():
         else "OK"
     )
 
+    max_open_positions = int(risk_settings_data["maxOpenPositions"])
+    current_open_positions = len(positions)
+
+    position_usage_percent = (
+        (current_open_positions / max_open_positions) * 100
+        if max_open_positions > 0
+        else 0
+    )
+
+    remaining_slots = max(max_open_positions - current_open_positions, 0)
+
+    risk_status = "OK" if bot_status == "RUNNING" else "PAUSED"
+
     return {
         "maxDailyLoss": risk_settings_data["maxDailyLoss"],
         "currentDailyLoss": account_settings_data["currentDailyLoss"],
@@ -319,16 +406,101 @@ def get_risk_controls():
         "dailyLossStatus": daily_loss_status,
         "riskPerTrade": risk_settings_data["riskPerTrade"],
         "maxOpenPositions": risk_settings_data["maxOpenPositions"],
-        "currentOpenPositions": len(positions),
-        "riskStatus": "OK" if bot_status == "RUNNING" else "PAUSED"
+        "currentOpenPositions": current_open_positions,
+        "remainingSlots": remaining_slots,
+        "positionUsagePercent": round(position_usage_percent, 2),
+        "riskStatus": risk_status
+    }
+
+
+def get_history_summary():
+    return {
+        "totalRecords": len(history_items),
+        "botRecords": len(
+            [
+                item
+                for item in history_items
+                if (item.get("area") or item.get("symbol")) == "BOT"
+            ]
+        ),
+        "accountRecords": len(
+            [
+                item
+                for item in history_items
+                if (item.get("area") or item.get("symbol")) == "ACCOUNT"
+            ]
+        ),
+        "riskRecords": len(
+            [
+                item
+                for item in history_items
+                if (item.get("area") or item.get("symbol")) == "RISK"
+            ]
+        ),
+        "systemRecords": len(
+            [
+                item
+                for item in history_items
+                if (item.get("area") or item.get("symbol")) == "SYSTEM"
+            ]
+        )
+    }
+
+
+def get_backend_health_snapshot():
+    uptime_seconds = get_uptime_seconds()
+    risk_controls = get_risk_controls()
+    positions = get_positions()
+
+    return {
+        "appName": "AI Trading Dashboard Backend",
+        "version": "0.2.0",
+        "environment": "local-dev",
+        "status": "ok",
+        "message": "backend connected",
+        "serverTime": get_server_time(),
+        "startedAt": APP_STARTED_AT.strftime("%Y-%m-%d %H:%M:%S"),
+        "uptimeSeconds": uptime_seconds,
+        "uptime": format_uptime(uptime_seconds),
+        "botStatus": bot_status,
+        "systemMode": get_system_mode(),
+        "activeSymbol": settings_data["symbol"],
+        "timeframe": settings_data["timeframe"],
+        "mode": settings_data["mode"],
+        "openPositions": len(positions),
+        "historyRecords": len(history_items),
+        "riskStatus": risk_controls["riskStatus"],
+        "dailyLossStatus": risk_controls["dailyLossStatus"]
+    }
+
+
+@app.get("/")
+def root():
+    return {
+        "message": "AI Trading Dashboard Backend",
+        "status": "ok",
+        "health": "/api/health",
+        "dashboard": "/api/dashboard",
+        "systemStatus": "/api/system/status"
     }
 
 
 @app.get("/api/health")
 def health_check():
+    return get_backend_health_snapshot()
+
+
+@app.get("/api/system/status")
+def get_system_status():
     return {
-        "status": "ok",
-        "message": "backend connected"
+        "backendHealth": get_backend_health_snapshot(),
+        "settings": settings_data,
+        "riskSettings": risk_settings_data,
+        "accountSettings": account_settings_data,
+        "riskControls": get_risk_controls(),
+        "positions": get_positions(),
+        "historySummary": get_history_summary(),
+        "serverTime": get_server_time()
     }
 
 
@@ -367,6 +539,8 @@ def get_dashboard_data():
         "positions": get_positions(),
         "chartData": get_chart_data(),
         "historyItems": history_items,
+        "historySummary": get_history_summary(),
+        "backendHealth": get_backend_health_snapshot(),
         "fetchedAt": datetime.now().strftime("%H:%M:%S")
     }
 
@@ -393,7 +567,9 @@ def start_bot():
         "lastAction": last_action,
         "dailyPnl": get_daily_pnl(),
         "positions": get_positions(),
-        "historyItems": history_items
+        "riskControls": get_risk_controls(),
+        "historyItems": history_items,
+        "backendHealth": get_backend_health_snapshot()
     }
 
 
@@ -419,7 +595,9 @@ def stop_bot():
         "lastAction": last_action,
         "dailyPnl": get_daily_pnl(),
         "positions": get_positions(),
-        "historyItems": history_items
+        "riskControls": get_risk_controls(),
+        "historyItems": history_items,
+        "backendHealth": get_backend_health_snapshot()
     }
 
 
@@ -445,7 +623,9 @@ def emergency_stop_bot():
         "lastAction": last_action,
         "dailyPnl": get_daily_pnl(),
         "positions": get_positions(),
-        "historyItems": history_items
+        "riskControls": get_risk_controls(),
+        "historyItems": history_items,
+        "backendHealth": get_backend_health_snapshot()
     }
 
 
@@ -487,7 +667,8 @@ def save_settings(payload: SettingsPayload):
         "message": "Settings saved successfully",
         "settings": settings_data,
         "lastAction": last_action,
-        "historyItems": history_items
+        "historyItems": history_items,
+        "backendHealth": get_backend_health_snapshot()
     }
 
 
@@ -525,7 +706,8 @@ def save_risk_settings(payload: RiskSettingsPayload):
         "riskSettings": risk_settings_data,
         "riskControls": get_risk_controls(),
         "lastAction": last_action,
-        "historyItems": history_items
+        "historyItems": history_items,
+        "backendHealth": get_backend_health_snapshot()
     }
 
 
@@ -563,7 +745,8 @@ def save_account_settings(payload: AccountSettingsPayload):
         "accountSettings": account_settings_data,
         "riskControls": get_risk_controls(),
         "lastAction": last_action,
-        "historyItems": history_items
+        "historyItems": history_items,
+        "backendHealth": get_backend_health_snapshot()
     }
 
 
@@ -578,5 +761,6 @@ def clear_history():
     return {
         "message": "History cleared successfully",
         "historyItems": history_items,
-        "lastAction": last_action
+        "lastAction": last_action,
+        "backendHealth": get_backend_health_snapshot()
     }

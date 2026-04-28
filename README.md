@@ -1,16 +1,46 @@
-# React + Vite
+# AI Trading Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+AI Trading Dashboard is a React + FastAPI trading operations dashboard designed for systematic trading workflow, risk control, diagnostics, strategy approval, simulated execution, portfolio risk budgeting, observability, backtest research, and deployment readiness.
 
-Currently, two official plugins are available:
+> Status: Advanced prototype / production-style trading operations console
+> Important: This project is not a live trading system yet. Real broker execution must remain disabled until proper backend risk gates, authentication, persistence, broker integration, and paper-trading validation are completed.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## Core Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Frontend: React + Vite
+- Styling: Inline React styles with dark institutional dashboard theme
+- Backend: FastAPI
+- Local frontend URL: `http://localhost:5173`
+- Local backend URL: `http://localhost:8000`
+- Main frontend entry: `src/App.jsx`
+- Main backend entry: `backend/main.py`
 
-## Expanding the ESLint configuration
+---
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Project Vision
+
+This dashboard is built to behave like a trading operations command center.
+
+It is designed around the following flow:
+
+```text
+Dashboard
+→ Backend Health
+→ System Diagnostics
+→ Alert Center
+→ Exposure Guard
+→ Kill Switch
+→ Trading Session Control
+→ Pre-Trade Checklist
+→ Live Readiness Gate
+→ Strategy Control Room
+→ AI Decision Approval Gate
+→ Execution Simulation
+→ Risk Budget Control
+→ Portfolio Exposure Control
+→ Observability Console
+→ Backtest Lab
+→ Deployment Readiness
+→ Final System Handoff
