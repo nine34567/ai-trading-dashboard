@@ -1,14 +1,14 @@
-import { Component, useEffect, useState } from "react"
+import { Component, useEffect, useMemo, useRef, useState } from "react"
 import {
-  getDashboardData,
-  getBackendHealth,
-  startBot,
-  stopBot,
-  emergencyStopBot,
   saveSettings,
   saveRiskSettings,
   saveAccountSettings
 } from "./api"
+import {
+  getDashboardSnapshot,
+  runBotAction
+} from "./services/dashboardService"
+import { getUserFacingError } from "./lib/apiClient"
 import Sidebar from "./components/Sidebar"
 import OpenPositionsTable from "./components/OpenPositionsTable"
 import HistoryTable from "./components/HistoryTable"
@@ -18,6 +18,14 @@ import OperationsPanel from "./components/OperationsPanel"
 import AiInsightsPanel from "./components/AiInsightsPanel"
 import AiUsagePanel from "./components/AiUsagePanel"
 import QuantAnalyticsPanel from "./components/QuantAnalyticsPanel"
+import ToastProvider from "./components/common/ToastProvider"
+import AuditLogDrawer from "./components/dashboard/AuditLogDrawer"
+import CommandPalette from "./components/dashboard/CommandPalette"
+import { useAuditLog } from "./hooks/useAuditLog"
+import { useClosedPositionsHistory } from "./hooks/useClosedPositionsHistory"
+import { useCommandPalette } from "./hooks/useCommandPalette"
+import { useSavedLayouts } from "./hooks/useSavedLayouts"
+import { useToasts } from "./hooks/useToasts"
 
 
 class OperationsPanelErrorBoundary extends Component {
@@ -366,6 +374,26 @@ function EmptyBox({ text }) {
   )
 }
 
+function getPositionRestoreKey(position) {
+  return String(
+    position?.id ||
+      position?.ticket ||
+      position?.orderId ||
+      `${position?.symbol || "POSITION"}-${position?.type || position?.side || "SIDE"}-${position?.lot || "SIZE"}-${position?.entry || "ENTRY"}`
+  )
+}
+
+function makeLocalHistoryRecord(type, position, detail) {
+  return {
+    date: new Date().toLocaleString(),
+    area: "POSITIONS",
+    symbol: position?.symbol || "POSITION",
+    type,
+    pnl: position?.pnl || "-",
+    detail
+  }
+}
+
 function App() {
   const [botStatus, setBotStatus] = useState("RUNNING")
   const [selectedMenu, setSelectedMenu] = useState("Dashboard")
@@ -461,6 +489,8 @@ function App() {
 
   const [lastUpdated, setLastUpdated] = useState("-")
   const [loadError, setLoadError] = useState("")
+  const [apiNotice, setApiNotice] = useState("")
+  const [botActionError, setBotActionError] = useState("")
   const [backendStatus, setBackendStatus] = useState("Checking...")
   const [backendHealth, setBackendHealth] = useState({
     appName: "-",
@@ -484,6 +514,42 @@ function App() {
   })
   const [showOperationsConsole, setShowOperationsConsole] = useState(false)
   const [showFullOperationsChain, setShowFullOperationsChain] = useState(false)
+  const [auditLogOpen, setAuditLogOpen] = useState(false)
+  const [selectedWatchSymbol, setSelectedWatchSymbol] = useState("")
+  const [closeDrawerSignal, setCloseDrawerSignal] = useState(0)
+  const basePositionsRef = useRef([])
+  const dashboardLoadedRef = useRef(false)
+  const positionSearchRef = useRef(null)
+  const positionsSectionRef = useRef(null)
+  const riskSectionRef = useRef(null)
+  const {
+    toasts,
+    addToast,
+    dismissToast
+  } = useToasts()
+  const {
+    addClosedPositions,
+    removeClosedPositions
+  } = useClosedPositionsHistory()
+  const {
+    commandPaletteOpen,
+    closeCommandPalette,
+    openCommandPalette
+  } = useCommandPalette()
+  const {
+    auditRecords,
+    addAuditRecord,
+    clearAuditLog
+  } = useAuditLog()
+  const {
+    workstationView,
+    setWorkstationView,
+    selectedLayout,
+    layouts,
+    applyLayout,
+    resetWorkstationView,
+    toggleDensity
+  } = useSavedLayouts()
 
   const symbolOptions = ["OILCash", "XAUUSD", "USDJPYmicro"]
   const timeframeOptions = ["M5", "M15", "H1", "H4"]
@@ -586,146 +652,173 @@ function App() {
     return matchedPreset ? matchedPreset.name : "Custom"
   }
 
+  const applyDashboardData = (dashboardData) => {
+    const nextPositions = dashboardData.positions || []
+
+    setBotStatus(dashboardData.botStatus || "STOPPED")
+    setLastAction(dashboardData.lastAction || "No action")
+    setBalance(dashboardData.balance || "$0.00")
+    basePositionsRef.current = nextPositions
+    setBasePositions(nextPositions)
+    setChartData(dashboardData.chartData || [])
+
+    const nextRiskControls =
+      dashboardData.riskControls || {
+        maxDailyLoss: "-",
+        currentDailyLoss: "-",
+        dailyLossUsagePercent: 0,
+        dailyLossStatus: "-",
+        riskPerTrade: "-",
+        maxOpenPositions: "-",
+        currentOpenPositions: "-",
+        riskStatus: "-"
+      }
+
+    setRiskData(nextRiskControls)
+
+    const nextAccountSettings =
+      dashboardData.accountSettings || {
+        balance: dashboardData.balance || "",
+        dailyPnl: dashboardData.dailyPnl || "",
+        currentDailyLoss: nextRiskControls.currentDailyLoss || ""
+      }
+
+    setAccountSettingsForm({
+      balance: nextAccountSettings.balance || "",
+      dailyPnl: nextAccountSettings.dailyPnl || "",
+      currentDailyLoss: nextAccountSettings.currentDailyLoss || ""
+    })
+
+    setSelectedAccountScenario(getAccountScenarioNameFromValues(nextAccountSettings))
+
+    const nextRiskSettings =
+      dashboardData.riskSettings || {
+        maxDailyLoss: nextRiskControls.maxDailyLoss || "",
+        riskPerTrade: nextRiskControls.riskPerTrade || "",
+        maxOpenPositions: nextRiskControls.maxOpenPositions || ""
+      }
+
+    setRiskSettingsForm({
+      maxDailyLoss: nextRiskSettings.maxDailyLoss || "",
+      riskPerTrade: nextRiskSettings.riskPerTrade || "",
+      maxOpenPositions: String(nextRiskSettings.maxOpenPositions || "")
+    })
+
+    setSelectedRiskPreset(getRiskPresetNameFromValues(nextRiskSettings))
+
+    setHistoryItems(dashboardData.historyItems || [])
+    setLastUpdated(dashboardData.fetchedAt || "-")
+    setDailyPnl(dashboardData.dailyPnl || "+$0.00")
+
+    setAiInsights(
+      dashboardData.aiInsights || {
+        signal: "HOLD",
+        reason: "No data yet",
+        confidence: "0%"
+      }
+    )
+
+    setQuantStats(
+      dashboardData.quantStats || {
+        var: "-",
+        volatility: "-",
+        sharpeRatio: "-"
+      }
+    )
+
+    setAiUsage(
+      dashboardData.aiUsage || {
+        apiCalls: "-",
+        tokensUsed: "-",
+        estimatedCost: "-"
+      }
+    )
+
+    const nextSettings =
+      dashboardData.settings || {
+        symbol: "-",
+        timeframe: "-",
+        mode: "-"
+      }
+
+    setSettingsData(nextSettings)
+    setSettingsForm(nextSettings)
+
+    setBacktestData(
+      dashboardData.backtest || {
+        totalTrades: "-",
+        winRate: "-",
+        netProfit: "-"
+      }
+    )
+
+    const nextBackendHealth =
+      dashboardData.backendHealth || {
+        appName: "-",
+        version: "-",
+        environment: "-",
+        status: "-",
+        message: "-",
+        serverTime: "-",
+        startedAt: "-",
+        uptimeSeconds: 0,
+        uptime: "-",
+        botStatus: dashboardData.botStatus || "-",
+        systemMode: dashboardData.systemMode || "-",
+        activeSymbol: nextSettings.symbol || "-",
+        timeframe: nextSettings.timeframe || "-",
+        mode: nextSettings.mode || "-",
+        openPositions: dashboardData.positions?.length || 0,
+        historyRecords: dashboardData.historyItems?.length || 0,
+        riskStatus: nextRiskControls.riskStatus || "-",
+        dailyLossStatus: nextRiskControls.dailyLossStatus || "-"
+      }
+
+    setBackendHealth(nextBackendHealth)
+  }
+
   const loadDashboardData = async () => {
     setLoading(true)
     setLoadError("")
+    setApiNotice("")
+    setBotActionError("")
 
     try {
-      const [dashboardData, healthData] = await Promise.all([
-        getDashboardData(),
-        getBackendHealth()
-      ])
+      const result = await getDashboardSnapshot()
 
-      setBotStatus(dashboardData.botStatus || "STOPPED")
-      setLastAction(dashboardData.lastAction || "No action")
-      setBalance(dashboardData.balance || "$0.00")
-      setBasePositions(dashboardData.positions || [])
-      setChartData(dashboardData.chartData || [])
-
-      const nextRiskControls =
-        dashboardData.riskControls || {
-          maxDailyLoss: "-",
-          currentDailyLoss: "-",
-          dailyLossUsagePercent: 0,
-          dailyLossStatus: "-",
-          riskPerTrade: "-",
-          maxOpenPositions: "-",
-          currentOpenPositions: "-",
-          riskStatus: "-"
-        }
-
-      setRiskData(nextRiskControls)
-
-      const nextAccountSettings =
-        dashboardData.accountSettings || {
-          balance: dashboardData.balance || "",
-          dailyPnl: dashboardData.dailyPnl || "",
-          currentDailyLoss: nextRiskControls.currentDailyLoss || ""
-        }
-
-      setAccountSettingsForm({
-        balance: nextAccountSettings.balance || "",
-        dailyPnl: nextAccountSettings.dailyPnl || "",
-        currentDailyLoss: nextAccountSettings.currentDailyLoss || ""
-      })
-
-      setSelectedAccountScenario(getAccountScenarioNameFromValues(nextAccountSettings))
-
-      const nextRiskSettings =
-        dashboardData.riskSettings || {
-          maxDailyLoss: nextRiskControls.maxDailyLoss || "",
-          riskPerTrade: nextRiskControls.riskPerTrade || "",
-          maxOpenPositions: nextRiskControls.maxOpenPositions || ""
-        }
-
-      setRiskSettingsForm({
-        maxDailyLoss: nextRiskSettings.maxDailyLoss || "",
-        riskPerTrade: nextRiskSettings.riskPerTrade || "",
-        maxOpenPositions: String(nextRiskSettings.maxOpenPositions || "")
-      })
-
-      setSelectedRiskPreset(getRiskPresetNameFromValues(nextRiskSettings))
-
-      setHistoryItems(dashboardData.historyItems || [])
-      setLastUpdated(dashboardData.fetchedAt || "-")
-      setDailyPnl(dashboardData.dailyPnl || "+$0.00")
-
-      setAiInsights(
-        dashboardData.aiInsights || {
-          signal: "HOLD",
-          reason: "No data yet",
-          confidence: "0%"
-        }
+      applyDashboardData(result.snapshot)
+      setBackendStatus(result.backendStatus)
+      setApiNotice(result.notice || "")
+      addAuditRecord(
+        "DASHBOARD_REFRESHED",
+        result.notice ? "Dashboard refreshed with demo fallback." : "Dashboard refreshed from backend."
       )
-
-      setQuantStats(
-        dashboardData.quantStats || {
-          var: "-",
-          volatility: "-",
-          sharpeRatio: "-"
-        }
-      )
-
-      setAiUsage(
-        dashboardData.aiUsage || {
-          apiCalls: "-",
-          tokensUsed: "-",
-          estimatedCost: "-"
-        }
-      )
-
-      const nextSettings =
-        dashboardData.settings || {
-          symbol: "-",
-          timeframe: "-",
-          mode: "-"
-        }
-
-      setSettingsData(nextSettings)
-      setSettingsForm(nextSettings)
-
-      setBacktestData(
-        dashboardData.backtest || {
-          totalTrades: "-",
-          winRate: "-",
-          netProfit: "-"
-        }
-      )
-
-      const nextBackendHealth =
-        dashboardData.backendHealth ||
-        healthData || {
-          appName: "-",
-          version: "-",
-          environment: "-",
-          status: "-",
-          message: "-",
-          serverTime: "-",
-          startedAt: "-",
-          uptimeSeconds: 0,
-          uptime: "-",
-          botStatus: dashboardData.botStatus || "-",
-          systemMode: dashboardData.systemMode || "-",
-          activeSymbol: nextSettings.symbol || "-",
-          timeframe: nextSettings.timeframe || "-",
-          mode: nextSettings.mode || "-",
-          openPositions: dashboardData.positions?.length || 0,
-          historyRecords: dashboardData.historyItems?.length || 0,
-          riskStatus: nextRiskControls.riskStatus || "-",
-          dailyLossStatus: nextRiskControls.dailyLossStatus || "-"
-        }
-
-      setBackendHealth(nextBackendHealth)
-      setBackendStatus(nextBackendHealth.status === "ok" ? "Connected" : "Disconnected")
+      if (dashboardLoadedRef.current) {
+        addToast({
+          variant: result.notice ? "warning" : "success",
+          title: "Dashboard refreshed",
+          message: result.notice || "Latest dashboard snapshot loaded.",
+          dedupeKey: "dashboard-refresh"
+        })
+      }
+      dashboardLoadedRef.current = true
     } catch (error) {
-      setLoadError(error.message || "Unknown error")
+      const message = getUserFacingError(error, "Failed to load dashboard data.")
+
+      setLoadError(message)
       setBackendStatus("Disconnected")
       setBackendHealth((prev) => ({
         ...prev,
         status: "error",
-        message: error.message || "Unknown error",
+        message,
         serverTime: new Date().toLocaleString()
       }))
+      addToast({
+        variant: "error",
+        title: "Refresh failed",
+        message,
+        dedupeKey: "dashboard-refresh-error"
+      })
     } finally {
       setLoading(false)
     }
@@ -735,11 +828,277 @@ function App() {
     loadDashboardData()
   }, [])
 
+  useEffect(() => {
+    basePositionsRef.current = basePositions
+  }, [basePositions])
+
   const systemMode = botStatus === "RUNNING" ? "ACTIVE" : "INACTIVE"
   const systemModeColor = botStatus === "RUNNING" ? "#86efac" : "#f87171"
   const visiblePositions = botStatus === "RUNNING" ? basePositions : []
   const openPositionsCount = String(visiblePositions.length)
   const recentActivities = historyItems.slice(0, 4)
+  const chartFocusSymbol = selectedWatchSymbol || settingsData.symbol
+  const watchlistItems = useMemo(() => {
+    const symbols = new Set([
+      settingsData.symbol,
+      ...visiblePositions.map((position) => position.symbol)
+    ].filter(Boolean))
+
+    return Array.from(symbols).map((symbol) => {
+      const relatedPositions = visiblePositions.filter((position) => position.symbol === symbol)
+      const floatingPnl = relatedPositions.reduce((total, position) => {
+        const parsedPnl = Number(String(position.pnl || "0").replace("+", "").replace("$", "").replace(",", ""))
+        return total + (Number.isNaN(parsedPnl) ? 0 : parsedPnl)
+      }, 0)
+
+      return {
+        symbol,
+        positions: relatedPositions.length,
+        pnl: floatingPnl
+      }
+    })
+  }, [settingsData.symbol, visiblePositions])
+
+  const relatedWatchPositions = selectedWatchSymbol
+    ? visiblePositions.filter((position) => position.symbol === selectedWatchSymbol)
+    : []
+
+  const handlePositionsChange = (nextPositions, historyRecords = []) => {
+    basePositionsRef.current = nextPositions
+    setBasePositions(nextPositions)
+    setRiskData((current) => ({
+      ...current,
+      currentOpenPositions: nextPositions.length
+    }))
+
+    if (Array.isArray(historyRecords) && historyRecords.length > 0) {
+      setHistoryItems((current) => [...historyRecords, ...current])
+    }
+  }
+
+  const handleUndoClosedPositions = (closedRecords) => {
+    const records = Array.isArray(closedRecords) ? closedRecords : []
+    if (records.length === 0) return
+
+    const currentPositions = basePositionsRef.current
+    const existingKeys = new Set(currentPositions.map((position) => getPositionRestoreKey(position)))
+    const restoredPositions = records
+      .map((record) => record.position)
+      .filter((position) => {
+        const key = getPositionRestoreKey(position)
+        if (existingKeys.has(key)) return false
+        existingKeys.add(key)
+        return true
+      })
+
+    if (restoredPositions.length === 0) {
+      addToast({
+        variant: "info",
+        title: "Nothing to restore",
+        message: "Those positions are already back in the active book.",
+        dedupeKey: "undo-close"
+      })
+      return
+    }
+
+    const historyRecords = restoredPositions.map((position) =>
+      makeLocalHistoryRecord(
+        "UNDO",
+        position,
+        `Restored ${position.type || position.side || "position"} ${position.symbol || ""} after close undo.`
+      )
+    )
+
+    handlePositionsChange([...restoredPositions, ...currentPositions], historyRecords)
+    removeClosedPositions(records.map((record) => record.id))
+    addAuditRecord(
+      "UNDO_CLOSE",
+      restoredPositions.length > 1
+        ? `Undo restored ${restoredPositions.length} closed positions.`
+        : `Undo restored ${restoredPositions[0].symbol || "position"}.`
+    )
+    addToast({
+      variant: "success",
+      title: "Undo restored position",
+      message: restoredPositions.length > 1
+        ? `${restoredPositions.length} positions restored to the active book.`
+        : `${restoredPositions[0].symbol || "Position"} restored to the active book.`,
+      dedupeKey: "undo-close"
+    })
+  }
+
+  const handlePositionsClosed = ({ closingRows = [], nextPositions = [], historyRecords = [], mode = "single" }) => {
+    if (!Array.isArray(closingRows) || closingRows.length === 0) return
+
+    handlePositionsChange(nextPositions, historyRecords)
+
+    const closedRecords = addClosedPositions(
+      closingRows.map((row) => ({
+        rowId: row.id,
+        position: row.position,
+        mode
+      }))
+    )
+    const isBulkClose = closingRows.length > 1
+
+    addAuditRecord(
+      isBulkClose ? "BULK_CLOSE" : "POSITION_CLOSED",
+      isBulkClose
+        ? `Bulk closed ${closingRows.length} selected positions.`
+        : `Closed ${closingRows[0].position.symbol || "position"}.`
+    )
+    addToast({
+      variant: "success",
+      title: isBulkClose ? "Bulk close completed" : "Position closed",
+      message: isBulkClose
+        ? `${closingRows.length} positions removed from the active book.`
+        : `${closingRows[0].position.symbol || "Position"} removed from the active book.`,
+      actionLabel: "Undo",
+      onAction: () => handleUndoClosedPositions(closedRecords),
+      duration: 9000,
+      dedupeKey: "close-position"
+    })
+  }
+
+  const applyWorkstationLayout = (layoutName) => {
+    applyLayout(layoutName)
+    addAuditRecord("LAYOUT_CHANGED", `Applied workstation layout: ${layoutName}.`)
+    addToast({
+      variant: "success",
+      title: "View/layout saved",
+      message: `${layoutName} layout applied.`,
+      dedupeKey: "workstation-layout"
+    })
+  }
+
+  const resetPositionsView = () => {
+    resetWorkstationView()
+    addAuditRecord("POSITIONS_VIEW_RESET", "Positions workstation view reset.")
+    addToast({
+      variant: "info",
+      title: "View reset",
+      message: "Positions workstation view restored to defaults.",
+      dedupeKey: "workstation-layout"
+    })
+  }
+
+  const handleWatchlistSymbolChange = (symbol) => {
+    setSelectedWatchSymbol(symbol)
+    addAuditRecord("WATCHLIST_SYMBOL_CHANGED", `Watchlist focus changed to ${symbol}.`)
+  }
+
+  const scrollToRef = (ref) => {
+    window.setTimeout(() => {
+      ref.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    }, 0)
+  }
+
+  const commandPaletteCommands = useMemo(() => {
+    const runCommand = (label, action) => {
+      return () => {
+        addAuditRecord("COMMAND_PALETTE_ACTION", `Command executed: ${label}.`)
+        action()
+      }
+    }
+
+    return [
+      {
+        id: "open-dashboard",
+        label: "Open Dashboard",
+        description: "Return to the main dashboard overview.",
+        group: "Navigation",
+        run: runCommand("Open Dashboard", () => {
+          setSelectedMenu("Dashboard")
+          window.setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 0)
+        })
+      },
+      {
+        id: "open-positions",
+        label: "Open Positions",
+        description: "Jump to the positions workstation.",
+        group: "Navigation",
+        run: runCommand("Open Positions", () => {
+          setSelectedMenu("Dashboard")
+          scrollToRef(positionsSectionRef)
+        })
+      },
+      {
+        id: "open-risk",
+        label: "Open Risk",
+        description: "Jump to chart and risk engine.",
+        group: "Navigation",
+        run: runCommand("Open Risk", () => {
+          setSelectedMenu("Dashboard")
+          scrollToRef(riskSectionRef)
+        })
+      },
+      {
+        id: "open-history",
+        label: "Open History",
+        description: "Open trade and activity history.",
+        group: "Navigation",
+        run: runCommand("Open History", () => setSelectedMenu("History"))
+      },
+      {
+        id: "refresh-dashboard",
+        label: "Refresh Dashboard",
+        description: "Reload dashboard snapshot through the service layer.",
+        group: "Data",
+        run: runCommand("Refresh Dashboard", () => loadDashboardData())
+      },
+      {
+        id: "focus-position-search",
+        label: "Focus Position Search",
+        description: "Focus the workstation search input.",
+        group: "Positions",
+        run: runCommand("Focus Position Search", () => {
+          setSelectedMenu("Dashboard")
+          scrollToRef(positionsSectionRef)
+          window.setTimeout(() => positionSearchRef.current?.focus(), 80)
+        })
+      },
+      {
+        id: "toggle-density",
+        label: "Toggle Compact Density",
+        description: "Switch positions table density.",
+        group: "Positions",
+        run: runCommand("Toggle Compact Density", () => {
+          toggleDensity()
+          addAuditRecord("LAYOUT_CHANGED", "Positions density toggled from command palette.")
+          addToast({
+            variant: "info",
+            title: "View/layout saved",
+            message: "Positions density toggled.",
+            dedupeKey: "workstation-layout"
+          })
+        })
+      },
+      {
+        id: "reset-positions-view",
+        label: "Reset Positions View",
+        description: "Reset filters, sort, columns, density, and pins.",
+        group: "Positions",
+        run: runCommand("Reset Positions View", resetPositionsView)
+      },
+      {
+        id: "open-audit-log",
+        label: "Open Audit Log",
+        description: "Open the local workflow audit drawer.",
+        group: "Workflow",
+        run: runCommand("Open Audit Log", () => setAuditLogOpen(true))
+      },
+      {
+        id: "close-drawer",
+        label: "Close Drawer",
+        description: "Close open workflow drawers.",
+        group: "Workflow",
+        run: runCommand("Close Drawer", () => {
+          setAuditLogOpen(false)
+          setCloseDrawerSignal((current) => current + 1)
+        })
+      }
+    ]
+  }, [addAuditRecord, addToast, loadDashboardData, resetPositionsView, scrollToRef, toggleDensity])
 
   const currentAccountScenario = getAccountScenarioNameFromValues({
     balance,
@@ -953,10 +1312,40 @@ function App() {
     try {
       setActionLoading(true)
       setLoadError("")
-      await startBot()
-      await loadDashboardData()
+      setBotActionError("")
+
+      const result = await runBotAction("START")
+
+      applyDashboardData(result.snapshot)
+      setBackendStatus(result.backendStatus)
+      setApiNotice(result.notice || "")
+
+      if (result.actionError) {
+        setBotActionError(result.userMessage || "Bot action could not reach the backend.")
+        addToast({
+          variant: "warning",
+          title: "Bot action used fallback",
+          message: result.userMessage || "Backend action could not be completed.",
+          dedupeKey: "bot-action"
+        })
+      } else {
+        addToast({
+          variant: "success",
+          title: "Bot action completed",
+          message: "Start bot action sent.",
+          dedupeKey: "bot-action"
+        })
+      }
+      addAuditRecord("BOT_ACTION", "Start bot action requested.")
     } catch (error) {
-      setLoadError(error.message || "Failed to start bot")
+      const message = getUserFacingError(error, "Failed to start bot.")
+      setBotActionError(message)
+      addToast({
+        variant: "error",
+        title: "Bot action failed",
+        message,
+        dedupeKey: "bot-action"
+      })
     } finally {
       setActionLoading(false)
     }
@@ -968,10 +1357,40 @@ function App() {
     try {
       setActionLoading(true)
       setLoadError("")
-      await stopBot()
-      await loadDashboardData()
+      setBotActionError("")
+
+      const result = await runBotAction("STOP")
+
+      applyDashboardData(result.snapshot)
+      setBackendStatus(result.backendStatus)
+      setApiNotice(result.notice || "")
+
+      if (result.actionError) {
+        setBotActionError(result.userMessage || "Bot action could not reach the backend.")
+        addToast({
+          variant: "warning",
+          title: "Bot action used fallback",
+          message: result.userMessage || "Backend action could not be completed.",
+          dedupeKey: "bot-action"
+        })
+      } else {
+        addToast({
+          variant: "success",
+          title: "Bot action completed",
+          message: "Stop bot action sent.",
+          dedupeKey: "bot-action"
+        })
+      }
+      addAuditRecord("BOT_ACTION", "Stop bot action requested.")
     } catch (error) {
-      setLoadError(error.message || "Failed to stop bot")
+      const message = getUserFacingError(error, "Failed to stop bot.")
+      setBotActionError(message)
+      addToast({
+        variant: "error",
+        title: "Bot action failed",
+        message,
+        dedupeKey: "bot-action"
+      })
     } finally {
       setActionLoading(false)
     }
@@ -983,10 +1402,40 @@ function App() {
     try {
       setActionLoading(true)
       setLoadError("")
-      await emergencyStopBot()
-      await loadDashboardData()
+      setBotActionError("")
+
+      const result = await runBotAction("EMERGENCY_STOP")
+
+      applyDashboardData(result.snapshot)
+      setBackendStatus(result.backendStatus)
+      setApiNotice(result.notice || "")
+
+      if (result.actionError) {
+        setBotActionError(result.userMessage || "Bot action could not reach the backend.")
+        addToast({
+          variant: "warning",
+          title: "Emergency stop fallback",
+          message: result.userMessage || "Backend action could not be completed.",
+          dedupeKey: "bot-action"
+        })
+      } else {
+        addToast({
+          variant: "warning",
+          title: "Emergency stop sent",
+          message: "Emergency stop action completed.",
+          dedupeKey: "bot-action"
+        })
+      }
+      addAuditRecord("BOT_ACTION", "Emergency stop action requested.")
     } catch (error) {
-      setLoadError(error.message || "Failed to emergency stop bot")
+      const message = getUserFacingError(error, "Failed to emergency stop bot.")
+      setBotActionError(message)
+      addToast({
+        variant: "error",
+        title: "Emergency stop failed",
+        message,
+        dedupeKey: "bot-action"
+      })
     } finally {
       setActionLoading(false)
     }
@@ -1414,7 +1863,13 @@ function App() {
                 <button onClick={loadDashboardData} disabled={isBusy} style={refreshButtonStyle}>
                   {isBusy ? "Refreshing..." : "Refresh Data"}
                 </button>
+
+                <button onClick={openCommandPalette} style={resetButtonStyle}>
+                  Command Palette
+                </button>
               </div>
+
+              {botActionError ? renderMessageBox("error", "Bot Action", botActionError) : null}
 
               <div
                 style={{
@@ -1681,11 +2136,67 @@ function App() {
           </div>
         </SectionCard>
 
+        <div ref={riskSectionRef}>
         <SectionCard
           eyebrow="Risk & Market"
           title="Price Chart & Risk Engine"
           subtitle="กราฟราคาและแผง risk control วางคู่กัน ทำให้มอง market context และ risk state ได้ใน section เดียว"
         >
+          <div
+            style={{
+              backgroundColor: "#0b1220",
+              border: "1px solid #1f2937",
+              borderRadius: "18px",
+              padding: "16px",
+              marginBottom: "18px"
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "14px", alignItems: "center", flexWrap: "wrap", marginBottom: "12px" }}>
+              <div>
+                <p style={{ color: "#f9fafb", fontWeight: "bold", marginBottom: "5px" }}>Watchlist Focus</p>
+                <p style={{ color: "#9ca3af", fontSize: "13px" }}>
+                  Click a symbol to focus the chart and highlight related positions.
+                </p>
+              </div>
+              {selectedWatchSymbol ? (
+                <StatusPill
+                  label={`${relatedWatchPositions.length} RELATED POSITION${relatedWatchPositions.length === 1 ? "" : "S"}`}
+                  color={relatedWatchPositions.length > 0 ? "#38bdf8" : "#9ca3af"}
+                  backgroundColor="rgba(17, 24, 39, 0.9)"
+                />
+              ) : null}
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              {watchlistItems.map((item) => {
+                const active = item.symbol === chartFocusSymbol
+
+                return (
+                  <button
+                    key={item.symbol}
+                    type="button"
+                    onClick={() => handleWatchlistSymbolChange(item.symbol)}
+                    style={{
+                      backgroundColor: active ? "#1a2e05" : "#111827",
+                      border: active ? "1px solid #84cc16" : "1px solid #374151",
+                      borderRadius: "14px",
+                      color: active ? "#d9f99d" : "#d1d5db",
+                      cursor: "pointer",
+                      minWidth: "128px",
+                      padding: "11px 12px",
+                      textAlign: "left"
+                    }}
+                  >
+                    <span style={{ display: "block", fontWeight: "bold", marginBottom: "5px" }}>{item.symbol}</span>
+                    <span style={{ color: item.pnl >= 0 ? "#86efac" : "#f87171", fontSize: "12px" }}>
+                      {item.positions} pos / {item.pnl >= 0 ? "+" : ""}{item.pnl.toFixed(2)}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           <div
             style={{
               display: "grid",
@@ -1704,7 +2215,7 @@ function App() {
             >
               <PriceChart
                 data={chartData}
-                symbol={settingsData.symbol}
+                symbol={chartFocusSymbol}
                 timeframe={settingsData.timeframe}
               />
             </div>
@@ -1721,7 +2232,9 @@ function App() {
             </div>
           </div>
         </SectionCard>
+        </div>
 
+        <div ref={positionsSectionRef}>
         <SectionCard
           eyebrow="Activity Feed"
           title="Recent Activity & Open Positions"
@@ -1748,10 +2261,29 @@ function App() {
                 padding: "18px"
               }}
             >
-              <OpenPositionsTable positions={visiblePositions} />
+              <OpenPositionsTable
+                positions={visiblePositions}
+                activityItems={historyItems}
+                workstationView={workstationView}
+                onWorkstationViewChange={setWorkstationView}
+                layouts={layouts}
+                selectedLayout={selectedLayout}
+                onApplyLayout={applyWorkstationLayout}
+                onResetView={resetPositionsView}
+                searchInputRef={positionSearchRef}
+                selectedSymbol={selectedWatchSymbol}
+                onSelectSymbol={handleWatchlistSymbolChange}
+                onOpenAuditLog={() => setAuditLogOpen(true)}
+                onAuditRecord={addAuditRecord}
+                onPositionsChange={handlePositionsChange}
+                onPositionsClosed={handlePositionsClosed}
+                onToast={addToast}
+                closeDrawerSignal={closeDrawerSignal}
+              />
             </div>
           </div>
         </SectionCard>
+        </div>
       </>
     )
   }
@@ -2714,8 +3246,42 @@ function App() {
       <Sidebar selectedMenu={selectedMenu} setSelectedMenu={setSelectedMenu} />
 
       <div style={{ flex: 1, padding: "32px" }}>
+        {apiNotice ? (
+          <div
+            style={{
+              backgroundColor: "#451a03",
+              border: "1px solid #f59e0b",
+              borderRadius: "16px",
+              color: "#fde68a",
+              fontWeight: "bold",
+              marginBottom: "18px",
+              padding: "14px 16px"
+            }}
+          >
+            {apiNotice}
+          </div>
+        ) : null}
+
         {renderContent()}
       </div>
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        commands={commandPaletteCommands}
+        onClose={closeCommandPalette}
+      />
+
+      <AuditLogDrawer
+        open={auditLogOpen}
+        records={auditRecords}
+        onClose={() => setAuditLogOpen(false)}
+        onClear={() => {
+          clearAuditLog()
+          addAuditRecord("AUDIT_LOG_CLEARED", "Audit log cleared.")
+        }}
+      />
+
+      <ToastProvider toasts={toasts} onDismiss={dismissToast} />
     </div>
   )
 }

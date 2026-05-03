@@ -1,9 +1,10 @@
-const configuredApiBaseUrl =
-  import.meta.env?.VITE_API_BASE_URL || "http://localhost:8000"
+import {
+  getApiBaseUrl as getClientApiBaseUrl,
+  requestJson as safeRequestJson
+} from "./lib/apiClient"
 
-const API_BASE_URL = configuredApiBaseUrl.replace(/\/$/, "")
+const API_BASE_URL = getClientApiBaseUrl()
 const MOCK_STORAGE_KEY = "ai-trading-dashboard-mock-state"
-const REQUEST_TIMEOUT_MS = 10000
 
 const isBrowser = typeof window !== "undefined"
 
@@ -14,6 +15,10 @@ const USE_MOCK_API =
   (isBrowser &&
     window.location.hostname !== "localhost" &&
     window.location.hostname !== "127.0.0.1")
+
+export function getApiBaseUrl() {
+  return API_BASE_URL
+}
 
 const defaultMockState = {
   botStatus: "RUNNING",
@@ -135,42 +140,7 @@ function saveMockState(state) {
 }
 
 async function requestJson(path, options = {}) {
-  const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-
-  try {
-    const response = await fetch(`${API_BASE_URL}${path}`, {
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers || {})
-      },
-      signal: controller.signal,
-      ...options
-    })
-
-    const contentType = response.headers.get("content-type") || ""
-    const isJson = contentType.includes("application/json")
-
-    const data = isJson ? await response.json() : await response.text()
-
-    if (!response.ok) {
-      if (typeof data === "string") {
-        throw new Error(data || `Request failed: ${response.status}`)
-      }
-
-      throw new Error(data.detail || data.message || `Request failed: ${response.status}`)
-    }
-
-    return data
-  } catch (error) {
-    if (error.name === "AbortError") {
-      throw new Error(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`)
-    }
-
-    throw error
-  } finally {
-    window.clearTimeout(timeoutId)
-  }
+  return safeRequestJson(path, options)
 }
 
 function tryParseMoney(value) {
@@ -449,46 +419,59 @@ export function getBackendHealth() {
   return requestJson("/api/health")
 }
 
+function buildMockDashboardData(state) {
+  return {
+    botStatus: state.botStatus,
+    systemMode: getMockSystemMode(state),
+    lastAction: state.lastAction,
+    balance: state.accountSettingsData.balance,
+    dailyPnl: state.accountSettingsData.dailyPnl,
+    accountSettings: state.accountSettingsData,
+    aiInsights: {
+      signal: "HOLD",
+      reason: "Market is extended, waiting for better entry",
+      confidence: "74%"
+    },
+    quantStats: {
+      var: "-2.4%",
+      volatility: "18.2%",
+      sharpeRatio: "1.42"
+    },
+    aiUsage: {
+      apiCalls: "128",
+      tokensUsed: "54,320",
+      estimatedCost: "$3.42"
+    },
+    settings: state.settingsData,
+    riskSettings: state.riskSettingsData,
+    backtest: {
+      totalTrades: "128",
+      winRate: "61%",
+      netProfit: "+$1,248"
+    },
+    riskControls: getMockRiskControls(state),
+    positions: getMockPositions(state),
+    chartData: getMockChartData(state),
+    historyItems: state.historyItems,
+    backendHealth: getMockBackendHealth(state),
+    fetchedAt: new Date().toLocaleTimeString()
+  }
+}
+
+export function getDemoDashboardData() {
+  const state = readMockState()
+
+  return mockResolve({
+    ...buildMockDashboardData(state),
+    usingDemoData: true
+  })
+}
+
 export function getDashboardData() {
   if (USE_MOCK_API) {
     const state = readMockState()
 
-    return mockResolve({
-      botStatus: state.botStatus,
-      systemMode: getMockSystemMode(state),
-      lastAction: state.lastAction,
-      balance: state.accountSettingsData.balance,
-      dailyPnl: state.accountSettingsData.dailyPnl,
-      accountSettings: state.accountSettingsData,
-      aiInsights: {
-        signal: "HOLD",
-        reason: "Market is extended, waiting for better entry",
-        confidence: "74%"
-      },
-      quantStats: {
-        var: "-2.4%",
-        volatility: "18.2%",
-        sharpeRatio: "1.42"
-      },
-      aiUsage: {
-        apiCalls: "128",
-        tokensUsed: "54,320",
-        estimatedCost: "$3.42"
-      },
-      settings: state.settingsData,
-      riskSettings: state.riskSettingsData,
-      backtest: {
-        totalTrades: "128",
-        winRate: "61%",
-        netProfit: "+$1,248"
-      },
-      riskControls: getMockRiskControls(state),
-      positions: getMockPositions(state),
-      chartData: getMockChartData(state),
-      historyItems: state.historyItems,
-      backendHealth: getMockBackendHealth(state),
-      fetchedAt: new Date().toLocaleTimeString()
-    })
+    return mockResolve(buildMockDashboardData(state))
   }
 
   return requestJson("/api/dashboard")
